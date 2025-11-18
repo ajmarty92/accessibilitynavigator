@@ -1,0 +1,142 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  stripeCustomerId String? @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  scans     Scan[]
+  subscription Subscription?
+}
+
+model Scan {
+  id              String      @id @default(cuid())
+  url             String
+  timestamp       DateTime    @default(now())
+  complianceScore Int
+  pagesScanned    Int
+  userId          String?
+  user            User?       @relation(fields: [userId], references: [id])
+  violations      Violation[]
+  metadata        ScanMetadata?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([timestamp])
+}
+
+model ScanMetadata {
+  id              String    @id @default(cuid())
+  scanId          String    @unique
+  scan            Scan      @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  frameworkDetection Json?   // Framework detection results
+  performanceMetrics Json?   // Performance metrics
+  scanOptions       Json?    // Scan options used
+  aiAnalysisEnabled Boolean  @default(false)
+  codeFixesEnabled  Boolean  @default(false)
+  customRulesEnabled Boolean @default(false)
+  performanceAnalysis Boolean @default(false)
+  frameworkDetectionEnabled Boolean @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model Subscription {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeSubscriptionId String @unique
+  tier            String    // starter, professional, enterprise
+  status          String    // active, canceled, past_due, incomplete
+  currentPeriodEnd Int       // Unix timestamp
+  cancelAtPeriodEnd Boolean  @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model CodeFix {
+  id              String    @id @default(cuid())
+  violationId     String
+  scanId          String
+  framework       String   // react, vue, angular, html, svelte
+  originalCode    String    @db.Text
+  fixedCode       String    @db.Text
+  explanation     String    @db.Text
+  steps           Json      // Implementation steps
+  testingRecommendations Json // Testing recommendations
+  browserCompatibility Json   // Browser compatibility notes
+  additionalImprovements Json // Additional improvements
+  beforeAfter      Json?     // Before/after comparison
+  cssClasses       Json?     // CSS class changes
+  isValidated      Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([violationId])
+  @@index([scanId])
+  @@index([framework])
+}
+
+model UsageEvent {
+  id          String   @id @default(cuid())
+  userId      String
+  eventType   String   // scan_completed, site_added, feature_used
+  metadata    Json?    // Additional event data
+  timestamp   DateTime @default(now())
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([timestamp])
+}
+
+model Violation {
+  id              String   @id @default(cuid())
+  scanId          String
+  scan            Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  violationId     String   // axe violation ID
+  description     String   @db.Text
+  help            String   @db.Text
+  helpUrl         String?
+  impact          String   // minor, moderate, serious, critical
+  wcagReference   String?
+  elementCount    Int      @default(0)
+  priority        String?  // critical, high, medium, low
+  priorityScore   Float?
+  impactScore     Float?
+  legalRiskScore  Float?
+  userImpactScore Float?
+  businessRiskScore Float?
+  technicalComplexity Float?
+  effortHours     Float?
+  explanation     String?  @db.Text
+  fixRecommendations Json? // Store fix recommendations as JSON array
+  complianceDeadline String?
+  businessJustification String? @db.Text
+  nodes           Json     // Store violation nodes as JSON
+  tags            Json     // Store tags as JSON array
+  framework       String?  // react, vue, angular, etc.
+  customRule      String?  // ID of custom accessibility rule
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([scanId])
+  @@index([priority])
+  @@index([impact])
+  @@index([framework])
+}
