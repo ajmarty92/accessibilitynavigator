@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { scanWebsite, detectFramework, scanMultiplePages, ScanOptions } from '@/lib/scanner'
 import { analyzeViolationsWithAI, SiteContext } from '@/lib/ai-prioritizer'
-import { trackScanUsage } from '@/lib/paddle'
+import { trackScanUsage } from '@/lib/stripe'
 import { prisma } from '@/lib/prisma'
 
 export async function POST(request: NextRequest) {
