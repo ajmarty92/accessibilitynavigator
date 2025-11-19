@@ -65,8 +65,9 @@ After deployment, add these environment variables in Netlify:
 ### Required for Full Functionality:
 ```
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
-PADDLE_API_KEY=your_paddle_api_key_here
-PADDLE_SELLER_ID=your_paddle_seller_id_here
+STRIPE_SECRET_KEY=your_stripe_secret_key_here
+STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key_here
+STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret_here
 DATABASE_URL=your_database_url_here
 ```
 

@@ -5,9 +5,9 @@ import {
   getCustomerSubscription,
   updateSubscription,
   cancelSubscription,
-  handlePaddleWebhook,
+  handleStripeWebhook,
   PRICING_TIERS 
-} from '@/lib/paddle'
+} from '@/lib/stripe'
 
 export async function POST(request: NextRequest) {
   try {
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
         }
 
         const updatedSubscription = await updateSubscription(
-          existingSubscription.paddleSubscriptionId,
+          existingSubscription.stripeSubscriptionId,
           tierId
         )
 
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
         }
 
         const canceledSubscription = await cancelSubscription(
-          activeSubscription.paddleSubscriptionId,
+          activeSubscription.stripeSubscriptionId,
           false // Cancel at period end by default
         )
 
@@ -119,15 +119,15 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Handle Paddle webhooks
+// Handle Stripe webhooks
 export async function PUT(request: NextRequest) {
   try {
     const event = await request.json()
-    await handlePaddleWebhook(event)
+    await handleStripeWebhook(event)
     
     return NextResponse.json({ received: true })
   } catch (error) {
-    console.error('Paddle webhook error:', error)
+    console.error('Stripe webhook error:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Webhook processing failed' },
       { status: 500 }
