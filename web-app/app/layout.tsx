@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
+import Script from 'next/script'
 import { Providers } from './providers'
 import { Toaster } from 'react-hot-toast'
 import './globals.css'
@@ -145,31 +146,7 @@ export default function RootLayout({
         </Providers>
         
         {/* Scripts */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              // Theme detection and management
-              (function() {
-                // Check for saved theme preference or default to light
-                const theme = localStorage.getItem('theme') || 'light';
-                document.documentElement.classList.toggle('dark', theme === 'dark');
-                
-                // Listen for system theme changes
-                const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-                mediaQuery.addListener((e) => {
-                  if (!localStorage.getItem('theme')) {
-                    document.documentElement.classList.toggle('dark', e.matches);
-                  }
-                });
-              })();
-              
-              // Error tracking for debugging
-              window.addEventListener('error', function(e) {
-                console.error('Accessibility Navigator Error:', e.error);
-              });
-            `
-          }}
-        />
+        <Script src="/js/init.js" strategy="afterInteractive" />
       </body>
     </html>
   )
