@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { Violation } from './scanner'
+import type { Violation } from './ai-prioritizer'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -279,7 +279,7 @@ function generateBasicFixes(
   })
 }
 
-function generateBasicFixForViolation(
+export function generateBasicFixForViolation(
   violation: Violation,
   framework: string
 ): Omit<CodeFix, 'id' | 'violationId' | 'framework' | 'originalCode'> {
@@ -394,7 +394,7 @@ function generateBasicFixForViolation(
   }
 }
 
-function generateContrastFix(violation: Violation): string {
+export function generateContrastFix(violation: Violation): string {
   const originalHtml = violation.nodes[0]?.html || ''
   
   // Basic contrast fix - in real implementation, this would be more sophisticated
@@ -405,7 +405,7 @@ function generateContrastFix(violation: Violation): string {
   return originalHtml
 }
 
-function generateAriaFix(violation: Violation, framework: string): string {
+export function generateAriaFix(violation: Violation, framework: string): string {
   const originalHtml = violation.nodes[0]?.html || ''
   
   if (framework === 'react') {
@@ -427,7 +427,7 @@ function generateAriaFix(violation: Violation, framework: string): string {
   return originalHtml
 }
 
-function generateFocusFix(violation: Violation, framework: string): string {
+export function generateFocusFix(violation: Violation, framework: string): string {
   const originalHtml = violation.nodes[0]?.html || ''
   
   // Add focus styles if missing
@@ -448,7 +448,7 @@ function generateFocusFix(violation: Violation, framework: string): string {
   return originalHtml
 }
 
-function generateGenericFix(violation: Violation): string {
+export function generateGenericFix(violation: Violation): string {
   const originalHtml = violation.nodes[0]?.html || ''
   
   // Add appropriate accessibility attributes

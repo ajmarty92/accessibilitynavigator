@@ -10,9 +10,12 @@ export interface Violation {
   impact: 'critical' | 'serious' | 'moderate' | 'minor'
   wcagReference: string
   elementCount?: number
-  nodes?: any[]
+  nodes: any[]
   category?: string
   helpUrl?: string
+  help?: string
+  framework?: string
+  tags?: string[]
 }
 
 export interface SiteContext {
