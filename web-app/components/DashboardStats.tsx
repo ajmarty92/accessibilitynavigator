@@ -5,56 +5,37 @@ import { TrendingUp, TrendingDown, AlertCircle, CheckCircle, Clock, Target } fro
 import { useQuery } from '@tanstack/react-query'
 
 export default function DashboardStats() {
-  const { data: scans, isLoading } = useQuery({
-    queryKey: ['scans'],
+  const { data: stats, isLoading } = useQuery({
+    queryKey: ['scans-stats'],
     queryFn: async () => {
       try {
-        const response = await fetch('/api/scans?limit=100')
-        if (!response.ok) return []
+        const response = await fetch('/api/scans/stats?limit=100')
+        if (!response.ok) {
+          return {
+            avgCompliance: 0,
+            totalViolations: 0,
+            criticalIssues: 0,
+            scansCount: 0,
+          }
+        }
         return response.json()
       } catch (error) {
-        return []
+        return {
+          avgCompliance: 0,
+          totalViolations: 0,
+          criticalIssues: 0,
+          scansCount: 0,
+        }
       }
     },
     retry: false,
-    initialData: [],
+    initialData: {
+      avgCompliance: 0,
+      totalViolations: 0,
+      criticalIssues: 0,
+      scansCount: 0,
+    },
   })
-
-  // Calculate stats from real data
-  const calculateStats = () => {
-    if (!scans || scans.length === 0) {
-      return {
-        avgCompliance: 0,
-        totalViolations: 0,
-        criticalIssues: 0,
-        scansCount: 0,
-      }
-    }
-
-    const avgCompliance = Math.round(
-      scans.reduce((sum: number, scan: any) => sum + scan.complianceScore, 0) / scans.length
-    )
-
-    const totalViolations = scans.reduce(
-      (sum: number, scan: any) => sum + (scan.violations?.length || 0),
-      0
-    )
-
-    const criticalIssues = scans.reduce(
-      (sum: number, scan: any) =>
-        sum + (scan.violations?.filter((v: any) => v.priority === 'critical').length || 0),
-      0
-    )
-
-    return {
-      avgCompliance,
-      totalViolations,
-      criticalIssues,
-      scansCount: scans.length,
-    }
-  }
-
-  const stats = calculateStats()
 
   const statsConfig = [
     {
