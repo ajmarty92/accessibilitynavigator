@@ -1,5 +1,6 @@
 import puppeteer from 'puppeteer'
 import { AxePuppeteer } from '@axe-core/puppeteer'
+import pLimit from 'p-limit'
 
 export interface ScanResult {
   violations: any[]
@@ -455,20 +456,24 @@ export async function scanMultiplePages(baseUrl: string, options: ScanOptions = 
     
     await browser.close()
     
-    // Scan each discovered page
+    // Scan discovered pages in parallel with a concurrency limit
+    const MAX_CONCURRENT_SCANS = 3
     const urls = [baseUrl, ...links].slice(0, maxPages)
-    const results: ScanResult[] = []
+    const limit = pLimit(MAX_CONCURRENT_SCANS)
     
-    for (const url of urls) {
-      try {
-        const result = await scanWebsite(url, options)
-        results.push(result)
-      } catch (error) {
-        console.error(`Failed to scan ${url}:`, error)
-      }
-    }
+    const scanPromises = urls.map(url =>
+      limit(async () => {
+        try {
+          return await scanWebsite(url, options)
+        } catch (error) {
+          console.error(`Failed to scan ${url}:`, error)
+          return null
+        }
+      })
+    )
     
-    return results
+    const resultsWithNulls = await Promise.all(scanPromises)
+    return resultsWithNulls.filter((result): result is ScanResult => result !== null)
   } finally {
     await browser.close()
   }
