@@ -44,19 +44,7 @@ export async function analyzeViolationsWithAI(
 ): Promise<AIAnalysis[]> {
   if (!process.env.ANTHROPIC_API_KEY) {
     // Fallback to basic scoring if no API key
-    return violations.map(violation => ({
-      legalRiskScore: getBasicLegalRiskScore(violation),
-      userImpactScore: getBasicUserImpactScore(violation),
-      businessRiskScore: getBasicBusinessRiskScore(violation),
-      technicalComplexity: getBasicTechnicalComplexity(violation),
-      priorityScore: 0,
-      complianceLevel: 'Medium' as const,
-      deadlineRecommendation: 'Review within 30 days',
-      businessJustification: 'Standard accessibility compliance required',
-      fixRecommendations: ['Implement standard accessibility fix'],
-      estimatedEffort: '2-4 hours',
-      businessValue: 'Improved user experience'
-    }))
+    return violations.map(violation => generateBasicAnalysis(violation))
   }
 
   const prompt = buildEnhancedPrompt(violations, siteContext)
@@ -82,19 +70,7 @@ export async function analyzeViolationsWithAI(
   } catch (error) {
     console.error('AI analysis failed:', error)
     // Fallback to basic scoring
-    return violations.map(violation => ({
-      legalRiskScore: getBasicLegalRiskScore(violation),
-      userImpactScore: getBasicUserImpactScore(violation),
-      businessRiskScore: getBasicBusinessRiskScore(violation),
-      technicalComplexity: getBasicTechnicalComplexity(violation),
-      priorityScore: 0,
-      complianceLevel: 'Medium' as const,
-      deadlineRecommendation: 'Review within 30 days',
-      businessJustification: 'Accessibility compliance required',
-      fixRecommendations: ['Review and implement fix'],
-      estimatedEffort: '2-4 hours',
-      businessValue: 'Improved accessibility'
-    }))
+    return violations.map(violation => generateBasicAnalysis(violation))
   }
 }
 
@@ -222,7 +198,7 @@ function parseAIResponse(responseText: string, violations: Violation[]): AIAnaly
   } catch (error) {
     console.error('Failed to parse AI response:', error)
     // Return basic analyses for all violations
-    return violations.map(() => createFallbackAnalysis())
+    return violations.map(violation => generateBasicAnalysis(violation))
   }
 }
 
@@ -243,19 +219,23 @@ function calculatePriorityScore(analysis: any): number {
   return Math.round(score * 10) / 10
 }
 
-function createFallbackAnalysis(): AIAnalysis {
-  return {
-    legalRiskScore: 5,
-    userImpactScore: 5,
-    businessRiskScore: 5,
-    technicalComplexity: 5,
-    priorityScore: 5.0,
-    complianceLevel: 'Medium',
+function generateBasicAnalysis(violation: Violation): AIAnalysis {
+  const analysis = {
+    legalRiskScore: getBasicLegalRiskScore(violation),
+    userImpactScore: getBasicUserImpactScore(violation),
+    businessRiskScore: getBasicBusinessRiskScore(violation),
+    technicalComplexity: getBasicTechnicalComplexity(violation),
+    complianceLevel: 'Medium' as const,
     deadlineRecommendation: 'Review within 30 days',
     businessJustification: 'Accessibility compliance required',
     fixRecommendations: ['Review and implement fix'],
     estimatedEffort: '2-4 hours',
     businessValue: 'Improved accessibility'
+  }
+
+  return {
+    ...analysis,
+    priorityScore: calculatePriorityScore(analysis)
   }
 }
 
