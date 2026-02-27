@@ -1,4 +1,5 @@
 import Stripe from 'stripe'
+import { logger } from './logger'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2024-06-20',
@@ -120,7 +121,7 @@ export async function createSubscription(
 
     return subscription
   } catch (error) {
-    console.error('Subscription creation failed:', error)
+    logger.error('Subscription creation failed:', error)
     throw error
   }
 }
@@ -152,7 +153,7 @@ export async function updateSubscription(
 
     return updatedSubscription
   } catch (error) {
-    console.error('Subscription update failed:', error)
+    logger.error('Subscription update failed:', error)
     throw error
   }
 }
@@ -169,7 +170,7 @@ export async function cancelSubscription(subscriptionId: string, immediate = fal
       return subscription
     }
   } catch (error) {
-    console.error('Subscription cancellation failed:', error)
+    logger.error('Subscription cancellation failed:', error)
     throw error
   }
 }
@@ -186,7 +187,7 @@ export async function createCustomer(email: string, name?: string) {
 
     return customer
   } catch (error) {
-    console.error('Customer creation failed:', error)
+    logger.error('Customer creation failed:', error)
     throw error
   }
 }
@@ -223,7 +224,7 @@ export async function getCustomerSubscription(customerId: string): Promise<Subsc
       usage,
     }
   } catch (error) {
-    console.error('Failed to get customer subscription:', error)
+    logger.error('Failed to get customer subscription:', error)
     return null
   }
 }
@@ -232,36 +233,36 @@ export async function handleStripeWebhook(event: Stripe.Event) {
   switch (event.type) {
     case 'invoice.payment_succeeded':
       const invoice = event.data.object as Stripe.Invoice
-      console.log('Payment succeeded for invoice:', invoice.id)
+      logger.info('Payment succeeded for invoice:', invoice.id)
       // Update subscription status in your database
       break
 
     case 'invoice.payment_failed':
       const failedInvoice = event.data.object as Stripe.Invoice
-      console.log('Payment failed for invoice:', failedInvoice.id)
+      logger.info('Payment failed for invoice:', failedInvoice.id)
       // Notify customer of failed payment
       break
 
     case 'customer.subscription.created':
       const createdSubscription = event.data.object as Stripe.Subscription
-      console.log('Subscription created:', createdSubscription.id)
+      logger.info('Subscription created:', createdSubscription.id)
       // Update user's subscription in your database
       break
 
     case 'customer.subscription.updated':
       const updatedSubscription = event.data.object as Stripe.Subscription
-      console.log('Subscription updated:', updatedSubscription.id)
+      logger.info('Subscription updated:', updatedSubscription.id)
       // Update user's subscription in your database
       break
 
     case 'customer.subscription.deleted':
       const deletedSubscription = event.data.object as Stripe.Subscription
-      console.log('Subscription deleted:', deletedSubscription.id)
+      logger.info('Subscription deleted:', deletedSubscription.id)
       // Update user's subscription in your database
       break
 
     default:
-      console.log(`Unhandled event type: ${event.type}`)
+      logger.info(`Unhandled event type: ${event.type}`)
   }
 }
 
