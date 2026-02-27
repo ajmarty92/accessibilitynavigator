@@ -125,9 +125,17 @@ export async function scanWebsite(url: string, options: ScanOptions = {}): Promi
 }
 
 async function runCustomAccessibilityChecks(page: any, framework: string): Promise<{ violations: any[], passes: any[] }> {
-  const customChecks = {
+  const customChecks = await page.evaluate((framework) => {
+    const results = {
+      'react-aria-compliance': [] as any[],
+      'enhanced-color-contrast': [] as any[],
+      'screen-reader-navigation': [] as any[],
+      'form-accessibility': [] as any[],
+      'focus-management': [] as any[]
+    };
+
     // React-specific checks
-    'react-aria-compliance': framework === 'react' ? await page.evaluate(() => {
+    if (framework === 'react') {
       const issues = []
       const reactElements = document.querySelectorAll('[data-reactroot], [class*="react"], [id*="react"]')
       
@@ -142,12 +150,11 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
           })
         }
       })
-      
-      return issues
-    }) : [],
+      results['react-aria-compliance'] = issues;
+    }
 
     // Enhanced color contrast check
-    'enhanced-color-contrast': await page.evaluate(() => {
+    {
       const issues = []
       const textElements = document.querySelectorAll('p, h1, h2, h3, h4, h5, h6, span, div, a, button')
       
@@ -173,12 +180,11 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
           }
         }
       })
-      
-      return issues
-    }),
+      results['enhanced-color-contrast'] = issues;
+    }
 
     // Screen reader navigation check
-    'screen-reader-navigation': await page.evaluate(() => {
+    {
       const issues = []
       
       // Check for proper heading structure
@@ -209,12 +215,11 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
           wcagReference: 'WCAG 2.4.1'
         })
       }
-      
-      return issues
-    }),
+      results['screen-reader-navigation'] = issues;
+    }
 
     // Form accessibility check
-    'form-accessibility': await page.evaluate(() => {
+    {
       const issues = []
       const forms = document.querySelectorAll('form')
       
@@ -228,7 +233,7 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
                           input.getAttribute('aria-label') || 
                           input.getAttribute('aria-labelledby')
           
-          if (!hasLabel && input.type !== 'hidden') {
+          if (!hasLabel && (input as HTMLInputElement).type !== 'hidden') {
             issues.push({
               id: `form-label-${formIndex}-${inputIndex}`,
               description: 'Form input missing associated label or aria-label',
@@ -269,12 +274,11 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
           }
         }
       })
-      
-      return issues
-    }),
+      results['form-accessibility'] = issues;
+    }
 
     // Focus management check
-    'focus-management': await page.evaluate(() => {
+    {
       const issues = []
       
       // Check for visible focus indicators
@@ -320,10 +324,11 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
           })
         }
       })
-      
-      return issues
-    })
-  }
+      results['focus-management'] = issues;
+    }
+
+    return results;
+  }, framework);
 
   const violations = [
     ...customChecks['react-aria-compliance'],
