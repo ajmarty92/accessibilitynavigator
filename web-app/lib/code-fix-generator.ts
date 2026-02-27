@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { Violation } from './scanner'
+import type { Violation } from './ai-prioritizer'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -16,6 +16,7 @@ export interface CodeFix {
   testingRecommendations: string[]
   browserCompatibility: string[]
   additionalImprovements: string[]
+  impact?: 'critical' | 'serious' | 'moderate' | 'minor'
   cssClasses?: {
     original: string
     fixed: string
@@ -252,6 +253,7 @@ function parseCodeFixResponse(
         additionalImprovements: fix.additionalImprovements || [],
         beforeAfter: fix.beforeAfter,
         cssClasses: fix.cssClasses,
+        impact: violation.impact,
       }
     })
   } catch (error) {
@@ -274,6 +276,7 @@ function generateBasicFixes(
       violationId: violation.id,
       framework: framework as any,
       originalCode: violation.nodes[0]?.html || '',
+      impact: violation.impact,
       ...basicFix
     }
   })
@@ -282,9 +285,7 @@ function generateBasicFixes(
 function generateBasicFixForViolation(
   violation: Violation,
   framework: string
-): Omit<CodeFix, 'id' | 'violationId' | 'framework' | 'originalCode'> {
-  const impact = violation.impact
-  
+): Omit<CodeFix, 'id' | 'violationId' | 'framework' | 'originalCode' | 'impact'> {
   // Generate basic fixes based on violation type and impact
   if (violation.description.toLowerCase().includes('contrast')) {
     return {
@@ -564,6 +565,9 @@ export function getCodeFixSummary(fixes: CodeFix[]): {
   
   fixes.forEach(fix => {
     fixesByFramework[fix.framework] = (fixesByFramework[fix.framework] || 0) + 1
+    if (fix.impact === 'critical' || fix.impact === 'serious') {
+      highImpactFixes++
+    }
   })
   
   // Estimate implementation time (basic calculation)
