@@ -191,7 +191,7 @@ Respond as a JSON array with detailed analysis for each violation:
 Prioritize business impact and practical implementation guidance for development teams.`
 }
 
-function parseAIResponse(responseText: string, violations: Violation[]): AIAnalysis[] {
+export function parseAIResponse(responseText: string, violations: Violation[]): AIAnalysis[] {
   try {
     // Extract JSON from response
     const jsonMatch = responseText.match(/\[[\s\S]*\]/)
