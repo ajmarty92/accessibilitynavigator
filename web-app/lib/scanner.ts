@@ -1,5 +1,6 @@
 import puppeteer from 'puppeteer'
 import { AxePuppeteer } from '@axe-core/puppeteer'
+import { mergeViolations } from './violation-utils'
 
 export interface ScanResult {
   violations: any[]
@@ -375,27 +376,6 @@ async function getPerformanceMetrics(page: any, url: string): Promise<any> {
     console.error('Performance metrics collection failed:', error)
     return null
   }
-}
-
-function mergeViolations(axeViolations: any[], customViolations: any[]): any[] {
-  const allViolations = [...axeViolations, ...customViolations]
-  
-  // Remove duplicates based on similar descriptions and elements
-  const uniqueViolations = allViolations.filter((violation, index, self) => {
-    return index === self.findIndex((v) => 
-      v.description === violation.description && 
-      v.wcagReference === violation.wcagReference
-    )
-  })
-  
-  // Sort by impact level
-  const impactOrder = { critical: 0, serious: 1, moderate: 2, minor: 3 }
-  
-  return uniqueViolations.sort((a, b) => {
-    const aImpact = impactOrder[a.impact as keyof typeof impactOrder] || 99
-    const bImpact = impactOrder[b.impact as keyof typeof impactOrder] || 99
-    return aImpact - bImpact
-  })
 }
 
 // Framework detection
