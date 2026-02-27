@@ -1,4 +1,5 @@
 import { Paddle, Environment } from '@paddle/paddle-node-sdk'
+import { logger } from './logger'
 
 let paddle: Paddle
 
@@ -123,7 +124,7 @@ export async function createSubscription(
 
       return subscription
     } catch (error) {
-      console.error('Paddle subscription creation failed:', error)
+      logger.error('Paddle subscription creation failed:', error)
       throw error
     }
   }
@@ -149,7 +150,7 @@ export async function updateSubscription(
 
       return updatedSubscription
     } catch (error) {
-      console.error('Paddle subscription update failed:', error)
+      logger.error('Paddle subscription update failed:', error)
       throw error
     }
   }
@@ -170,7 +171,7 @@ export async function cancelSubscription(subscriptionId: string, immediate = fal
         return subscription
       }
     } catch (error) {
-      console.error('Paddle subscription cancellation failed:', error)
+      logger.error('Paddle subscription cancellation failed:', error)
       throw error
     }
   }
@@ -189,7 +190,7 @@ export async function createCustomer(email: string, name?: string) {
 
       return customer
     } catch (error) {
-      console.error('Paddle customer creation failed:', error)
+      logger.error('Paddle customer creation failed:', error)
       throw error
     }
   }
@@ -229,7 +230,7 @@ export async function getCustomerSubscription(customerId: string): Promise<Subsc
         paddleSubscriptionId: subscription.id,
       }
     } catch (error) {
-      console.error('Failed to get customer subscription:', error)
+      logger.error('Failed to get customer subscription:', error)
       return null
     }
   }
@@ -237,32 +238,32 @@ export async function getCustomerSubscription(customerId: string): Promise<Subsc
 export async function handlePaddleWebhook(event: any) {
     switch (event.event_type) {
       case 'subscription.activated':
-        console.log('Paddle subscription activated:', event.data.id)
+        logger.info('Paddle subscription activated:', event.data.id)
         // Update subscription status in your database
         break
 
       case 'subscription.canceled':
-        console.log('Paddle subscription canceled:', event.data.id)
+        logger.info('Paddle subscription canceled:', event.data.id)
         // Update subscription status in your database
         break
 
       case 'subscription.paused':
-        console.log('Paddle subscription paused:', event.data.id)
+        logger.info('Paddle subscription paused:', event.data.id)
         // Update subscription status in your database
         break
 
       case 'payment.succeeded':
-        console.log('Paddle payment succeeded:', event.data.id)
+        logger.info('Paddle payment succeeded:', event.data.id)
         // Update payment records in your database
         break
 
       case 'payment.failed':
-        console.log('Paddle payment failed:', event.data.id)
+        logger.info('Paddle payment failed:', event.data.id)
         // Notify customer of failed payment
         break
 
       default:
-        console.log(`Unhandled Paddle event type: ${event.event_type}`)
+        logger.info(`Unhandled Paddle event type: ${event.event_type}`)
     }
   }
 
