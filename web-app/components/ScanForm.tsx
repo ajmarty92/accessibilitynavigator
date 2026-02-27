@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Loader2, Settings, ChevronDown } from 'lucide-react'
+import { Search, Loader2, Settings, ChevronDown, CheckCircle, Zap, Code, TrendingUp } from 'lucide-react'
 import { useMutation } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { useRouter } from 'next/navigation'
@@ -310,6 +310,3 @@ export default function ScanForm({ onScanStart }: ScanFormProps) {
     </motion.div>
   )
 }
-
-// Missing imports
-import { CheckCircle, Zap, Code, TrendingUp } from 'lucide-react'
