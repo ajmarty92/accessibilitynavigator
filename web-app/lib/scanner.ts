@@ -17,6 +17,10 @@ export interface ScanResult {
     accessibilityScore?: number
     performanceScore?: number
     bestPracticesScore?: number
+    coverage?: {
+      css: any
+      js: any
+    }
   }
 }
 
@@ -52,8 +56,10 @@ export async function scanWebsite(url: string, options: ScanOptions = {}): Promi
     
     // Enable performance monitoring
     if (includePerformance) {
-      await page.coverage.startCSSCoverage()
-      await page.coverage.startJSCoverage()
+      await Promise.all([
+        page.coverage.startCSSCoverage(),
+        page.coverage.startJSCoverage()
+      ])
     }
     
     // Navigate to the URL
@@ -63,7 +69,7 @@ export async function scanWebsite(url: string, options: ScanOptions = {}): Promi
     })
     
     // Wait for dynamic content
-    await page.waitForTimeout(2000)
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
     // Get page metadata
     const metadata = await page.evaluate(() => ({
