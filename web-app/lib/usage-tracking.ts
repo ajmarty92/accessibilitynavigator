@@ -1,5 +1,6 @@
 import { prisma } from './prisma'
 import { PRICING_TIERS } from './stripe'
+import { logger } from './logger'
 
 export interface UsageMetrics {
   scansThisMonth: number
@@ -62,7 +63,7 @@ export async function getUserUsage(userId: string): Promise<UsageMetrics> {
       lastScanDate: lastScan?.timestamp || null,
     }
   } catch (error) {
-    console.error('Failed to get user usage:', error)
+    logger.error('Failed to get user usage:', error)
     return {
       scansThisMonth: 0,
       scansToday: 0,
@@ -141,7 +142,7 @@ export async function canUserScan(userId: string): Promise<{
       scansRemaining: scansLimit - usage.scansThisMonth 
     }
   } catch (error) {
-    console.error('Failed to check user scan permission:', error)
+    logger.error('Failed to check user scan permission:', error)
     return { canScan: false, reason: 'Unable to verify usage' }
   }
 }
@@ -150,9 +151,9 @@ export async function trackScanUsage(userId: string, scanId: string): Promise<vo
   try {
     // This would be called after a successful scan
     // Usage is tracked implicitly by creating scan records in the database
-    console.log(`Tracked scan usage for user ${userId}, scan ${scanId}`)
+    logger.info(`Tracked scan usage for user ${userId}, scan ${scanId}`)
   } catch (error) {
-    console.error('Failed to track scan usage:', error)
+    logger.error('Failed to track scan usage:', error)
   }
 }
 
@@ -226,7 +227,7 @@ export async function checkSiteLimit(userId: string, newSiteUrl: string): Promis
       sitesRemaining: sitesLimit - uniqueSites.length 
     }
   } catch (error) {
-    console.error('Failed to check site limit:', error)
+    logger.error('Failed to check site limit:', error)
     return { canAddSite: false, reason: 'Unable to verify sites' }
   }
 }
@@ -297,7 +298,7 @@ export async function getUsageStats(userId: string): Promise<{
       resetDate,
     }
   } catch (error) {
-    console.error('Failed to get usage stats:', error)
+    logger.error('Failed to get usage stats:', error)
     throw error
   }
 }
@@ -310,14 +311,14 @@ export async function recordUsageEvent(
   try {
     // This could be extended to track detailed usage analytics
     // For now, we'll just log the event
-    console.log(`Usage event: ${eventType} for user ${userId}`, metadata)
+    logger.info(`Usage event: ${eventType} for user ${userId}`, metadata)
     
     // In a real implementation, you might:
     // - Save to a usage_events table
     // - Send to analytics service
     // - Update real-time metrics
   } catch (error) {
-    console.error('Failed to record usage event:', error)
+    logger.error('Failed to record usage event:', error)
   }
 }
 
@@ -349,7 +350,7 @@ export async function isFeatureAvailable(
 
     return tier.features[feature]
   } catch (error) {
-    console.error('Failed to check feature availability:', error)
+    logger.error('Failed to check feature availability:', error)
     return false
   }
 }
