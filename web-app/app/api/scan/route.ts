@@ -3,6 +3,7 @@ import { scanWebsite, detectFramework, scanMultiplePages, ScanOptions } from '@/
 import { analyzeViolationsWithAI, SiteContext } from '@/lib/ai-prioritizer'
 import { trackScanUsage } from '@/lib/paddle'
 import { prisma } from '@/lib/prisma'
+import { validateUrl } from '@/lib/security'
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,6 +25,16 @@ export async function POST(request: NextRequest) {
 
     // Format URL properly
     const formattedUrl = url.startsWith('http') ? url : `https://${url}`
+
+    // Security check: Validate URL against SSRF and other risks
+    const validationResult = await validateUrl(formattedUrl)
+    if (!validationResult.valid) {
+      return NextResponse.json(
+        { error: validationResult.reason || 'Invalid URL' },
+        { status: 403 }
+      )
+    }
+
     const urlObj = new URL(formattedUrl)
     
     // Track usage for subscription limits
