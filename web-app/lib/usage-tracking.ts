@@ -14,46 +14,48 @@ export async function getUserUsage(userId: string): Promise<UsageMetrics> {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
-    // Get scans this month
-    const scansThisMonth = await prisma.scan.count({
-      where: {
-        userId,
-        timestamp: {
-          gte: startOfMonth,
+    const [scansThisMonth, scansToday, uniqueSites, lastScan] = await Promise.all([
+      // Get scans this month
+      prisma.scan.count({
+        where: {
+          userId,
+          timestamp: {
+            gte: startOfMonth,
+          },
         },
-      },
-    })
+      }),
 
-    // Get scans today
-    const scansToday = await prisma.scan.count({
-      where: {
-        userId,
-        timestamp: {
-          gte: startOfDay,
+      // Get scans today
+      prisma.scan.count({
+        where: {
+          userId,
+          timestamp: {
+            gte: startOfDay,
+          },
         },
-      },
-    })
+      }),
 
-    // Get unique sites tracked
-    const uniqueSites = await prisma.scan.groupBy({
-      by: ['url'],
-      where: {
-        userId,
-      },
-    })
+      // Get unique sites tracked
+      prisma.scan.groupBy({
+        by: ['url'],
+        where: {
+          userId,
+        },
+      }),
 
-    // Get last scan date
-    const lastScan = await prisma.scan.findFirst({
-      where: {
-        userId,
-      },
-      orderBy: {
-        timestamp: 'desc',
-      },
-      select: {
-        timestamp: true,
-      },
-    })
+      // Get last scan date
+      prisma.scan.findFirst({
+        where: {
+          userId,
+        },
+        orderBy: {
+          timestamp: 'desc',
+        },
+        select: {
+          timestamp: true,
+        },
+      }),
+    ])
 
     return {
       scansThisMonth,
