@@ -381,12 +381,19 @@ function mergeViolations(axeViolations: any[], customViolations: any[]): any[] {
   const allViolations = [...axeViolations, ...customViolations]
   
   // Remove duplicates based on similar descriptions and elements
-  const uniqueViolations = allViolations.filter((violation, index, self) => {
-    return index === self.findIndex((v) => 
-      v.description === violation.description && 
-      v.wcagReference === violation.wcagReference
-    )
-  })
+  // Optimized to O(N) using a Set
+  const seen = new Set<string>()
+  const uniqueViolations: any[] = []
+
+  for (const violation of allViolations) {
+    // Create a unique key for deduplication
+    const key = `${violation.description}\0${violation.wcagReference}`
+
+    if (!seen.has(key)) {
+      seen.add(key)
+      uniqueViolations.push(violation)
+    }
+  }
   
   // Sort by impact level
   const impactOrder = { critical: 0, serious: 1, moderate: 2, minor: 3 }
