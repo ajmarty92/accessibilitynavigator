@@ -3,9 +3,10 @@
 import { useParams, useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Copy, CheckCircle, AlertCircle, Code, Eye, Download, FileText, ClipboardCheck, Brain } from 'lucide-react'
+import { Copy, CheckCircle, AlertCircle, Code, Eye, Download, FileText, ClipboardCheck, Brain, Scale } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { generateVpatRows } from '@/lib/vpat-generator'
+import { summarizeLegalRisk, legalRiskSummaryText } from '@/lib/legal-report-generator'
 
 interface Violation {
   id: string
@@ -411,6 +412,111 @@ export default function ResultsPage() {
     toast.success('VPAT draft downloaded')
   }
 
+  const handleExportLegalReport = async () => {
+    if (!scanResult) return
+
+    const summary = summarizeLegalRisk(scanResult.violations, auditItems)
+    const { jsPDF } = await import('jspdf')
+    const doc = new jsPDF()
+    const marginX = 14
+    const pageHeight = doc.internal.pageSize.getHeight()
+    const pageWidth = doc.internal.pageSize.getWidth()
+    let y = 20
+
+    const ensureSpace = (needed: number) => {
+      if (y + needed > pageHeight - 16) {
+        doc.addPage()
+        y = 20
+      }
+    }
+
+    const riskColors: Record<string, [number, number, number]> = {
+      Critical: [185, 28, 28],
+      High: [194, 120, 3],
+      Medium: [161, 98, 7],
+      Low: [21, 128, 61],
+    }
+
+    doc.setFontSize(18)
+    doc.text('Accessibility Legal Risk Assessment', marginX, y)
+    y += 9
+    doc.setFontSize(10)
+    doc.setTextColor(90)
+    doc.text(`${scanResult.url} · Prepared ${new Date().toLocaleString()}`, marginX, y)
+    y += 12
+
+    const [r, g, b] = riskColors[summary.riskLevel]
+    doc.setFillColor(r, g, b)
+    doc.roundedRect(marginX, y - 5, 46, 9, 1.5, 1.5, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFontSize(11)
+    doc.text(`${summary.riskLevel.toUpperCase()} RISK`, marginX + 4, y + 1)
+    doc.setTextColor(0)
+    y += 14
+
+    doc.setFontSize(10)
+    const summaryLines = doc.splitTextToSize(legalRiskSummaryText(summary.riskLevel), pageWidth - marginX * 2)
+    doc.text(summaryLines, marginX, y)
+    y += summaryLines.length * 5 + 8
+
+    doc.setFontSize(12)
+    doc.text('Key Figures', marginX, y)
+    y += 7
+    doc.setFontSize(10)
+    const figures = [
+      `Compliance score: ${scanResult.complianceScore}/100`,
+      `Total violations: ${summary.totalViolations} (${summary.criticalCount} critical, ${summary.seriousCount} serious)`,
+      `Average AI-assessed legal risk score: ${summary.avgLegalRiskScore ?? 'N/A (AI prioritization not run)'}${summary.avgLegalRiskScore !== null ? '/10' : ''}`,
+      `Manual audit completion: ${summary.manualAuditCompletionPct}%${summary.manualAuditFailCount > 0 ? ` (${summary.manualAuditFailCount} manual check(s) failed)` : ''}`,
+      `Pages scanned: ${scanResult.pagesScanned}`,
+    ]
+    figures.forEach(line => {
+      ensureSpace(6)
+      doc.text(`• ${line}`, marginX, y)
+      y += 6
+    })
+    y += 4
+
+    if (summary.topRiskViolations.length > 0) {
+      ensureSpace(10)
+      doc.setFontSize(12)
+      doc.text('Highest-Risk Findings', marginX, y)
+      y += 7
+      doc.setFontSize(9)
+
+      summary.topRiskViolations.forEach((violation, index) => {
+        ensureSpace(14)
+        doc.setFont('helvetica', 'bold')
+        const title = doc.splitTextToSize(
+          `${index + 1}. [${violation.impact.toUpperCase()}] ${violation.help || violation.description || ''}`,
+          pageWidth - marginX * 2
+        )
+        doc.text(title, marginX, y)
+        y += title.length * 4.5
+
+        doc.setFont('helvetica', 'normal')
+        const meta = `WCAG: ${violation.wcagReference || 'N/A'}${
+          violation.legalRiskScore != null ? ` · Legal risk score: ${violation.legalRiskScore}/10` : ''
+        }`
+        doc.text(meta, marginX, y)
+        y += 6
+      })
+      y += 4
+    }
+
+    ensureSpace(20)
+    doc.setFontSize(8)
+    doc.setTextColor(120)
+    const disclaimer = doc.splitTextToSize(
+      'This report is generated from automated WCAG scanning and self-reported manual audit results. It is provided for internal risk assessment and remediation planning purposes and does not constitute legal advice. Consult qualified counsel for litigation risk assessment and regulatory compliance determinations.',
+      pageWidth - marginX * 2
+    )
+    doc.text(disclaimer, marginX, pageHeight - 20)
+
+    doc.save(`legal-risk-report-${scanId}.pdf`)
+    toast.success('Legal risk report downloaded')
+  }
+
   const getFrameworkIcon = (framework: string) => {
     switch (framework) {
       case 'react': return '⚛️'
@@ -663,6 +769,13 @@ export default function ResultsPage() {
                 >
                   <ClipboardCheck className="w-4 h-4" />
                   Export VPAT Draft
+                </button>
+                <button
+                  onClick={handleExportLegalReport}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <Scale className="w-4 h-4" />
+                  Export Legal Risk Report
                 </button>
               </div>
             </motion.div>

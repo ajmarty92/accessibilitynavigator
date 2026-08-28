@@ -116,6 +116,18 @@ export default function HomePage() {
               </button>
               {status === 'authenticated' ? (
                 <div className="flex items-center gap-4">
+                  <Link
+                    href="/sites"
+                    className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200"
+                  >
+                    Trends
+                  </Link>
+                  <Link
+                    href="/settings/api-keys"
+                    className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200"
+                  >
+                    API Keys
+                  </Link>
                   <span className="text-sm text-secondary-600">{session.user?.email}</span>
                   <button
                     onClick={() => signOut({ callbackUrl: '/' })}
@@ -176,12 +188,20 @@ export default function HomePage() {
                   Documentation
                 </button>
                 {status === 'authenticated' ? (
-                  <button
-                    onClick={() => signOut({ callbackUrl: '/' })}
-                    className="text-secondary-700 hover:text-primary-600 font-medium text-left"
-                  >
-                    Sign out ({session.user?.email})
-                  </button>
+                  <>
+                    <Link href="/sites" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
+                      Trends
+                    </Link>
+                    <Link href="/settings/api-keys" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
+                      API Keys
+                    </Link>
+                    <button
+                      onClick={() => signOut({ callbackUrl: '/' })}
+                      className="text-secondary-700 hover:text-primary-600 font-medium text-left"
+                    >
+                      Sign out ({session.user?.email})
+                    </button>
+                  </>
                 ) : (
                   <>
                     <Link href="/login" className="text-secondary-700 hover:text-primary-600 font-medium text-left">

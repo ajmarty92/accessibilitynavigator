@@ -3,6 +3,10 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
+// Reads the caller's session on every request — never statically
+// pre-rendered/cached, or every user would see the same response.
+export const dynamic = 'force-dynamic'
+
 // GET /api/scans/[scanId] - Get a specific scan with all violations.
 // Scoped to the signed-in owner of the scan.
 export async function GET(

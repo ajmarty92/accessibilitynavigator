@@ -12,6 +12,10 @@ import {
 import { prisma } from '@/lib/prisma'
 import { logger } from '@/lib/logger'
 
+// Reads the caller's session on every request — never statically
+// pre-rendered/cached, or every user would see the same response.
+export const dynamic = 'force-dynamic'
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)

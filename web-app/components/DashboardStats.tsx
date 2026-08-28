@@ -94,9 +94,9 @@ export default function DashboardStats() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Overview</h2>
-        <button className="text-sm text-primary-600 hover:text-primary-700 font-medium">
-          View All Reports →
-        </button>
+        <Link href="/sites" className="text-sm text-primary-600 hover:text-primary-700 font-medium">
+          View Trends →
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

@@ -20,6 +20,26 @@ model User {
   updatedAt DateTime @updatedAt
   scans     Scan[]
   subscription Subscription?
+  apiKeys   ApiKey[]
+}
+
+// Machine-to-machine credentials for the CI integration and any future
+// programmatic access. Only the tier's api_access flag (PRICING_TIERS in
+// lib/stripe.ts) gates issuance — the key itself carries no scope beyond
+// "act as this user" for scanning endpoints. Only keyHash is stored; the
+// plaintext key is shown to the user exactly once, at creation.
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  keyPrefix  String    // first chars of the key, shown for identification
+  keyHash    String    @unique
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
 }
 
 // Sliding-window rate limiting for auth and scan endpoints.

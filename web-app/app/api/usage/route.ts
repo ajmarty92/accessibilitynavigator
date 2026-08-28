@@ -3,6 +3,10 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { getUserUsage, getUsageStats, isFeatureAvailable, recordUsageEvent } from '@/lib/usage-tracking'
 
+// Reads the caller's session on every request — never statically
+// pre-rendered/cached, or every user would see the same response.
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)

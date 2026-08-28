@@ -5,6 +5,10 @@ import { prisma } from '@/lib/prisma'
 import { MANUAL_AUDIT_CHECKLIST } from '@/lib/manual-audit-checklist'
 import { logger } from '@/lib/logger'
 
+// Reads the caller's session on every request — never statically
+// pre-rendered/cached, or every user would see the same response.
+export const dynamic = 'force-dynamic'
+
 const VALID_STATUSES = ['not_started', 'pass', 'fail', 'not_applicable']
 
 async function assertOwnership(scanId: string, userId: string) {

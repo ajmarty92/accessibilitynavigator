@@ -85,9 +85,9 @@ export default function RecentScans() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Recent Scans</h2>
-        <button className="text-sm text-primary-600 hover:text-primary-700 font-medium">
+        <Link href="/sites" className="text-sm text-primary-600 hover:text-primary-700 font-medium">
           View All Scans →
-        </button>
+        </Link>
       </div>
 
       <div className="space-y-4">
