@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert'
-import { mergeViolations } from '../lib/violation-utils'
+import { mergeViolations } from '../lib/violation-utils.ts'
 
 test('mergeViolations - Basic Merge', () => {
   const axeViolations = [{

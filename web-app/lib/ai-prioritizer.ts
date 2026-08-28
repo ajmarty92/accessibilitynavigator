@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { calculatePriorityScore } from './priority-scoring'
+import { calculatePriorityScore } from './priority-scoring.ts'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -14,6 +14,9 @@ export interface Violation {
   nodes?: any[]
   category?: string
   helpUrl?: string
+  help?: string
+  tags?: string[]
+  framework?: string
 }
 
 export interface SiteContext {

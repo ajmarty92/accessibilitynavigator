@@ -1,20 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireOrganizationContext } from '@/lib/organizations'
+import { resolveApiIdentity, checkApiAccessGate } from '@/lib/api-auth'
 
-// GET /api/scans - Get all scans (with optional userId filter)
+// Reads the caller's session on every request — never statically
+// pre-rendered/cached, or every user would see the same response.
+export const dynamic = 'force-dynamic'
+
+// GET /api/scans - the signed-in user's (or API key's) organization scans.
+// Doubles as the public API's scan-listing endpoint. Session callers (the
+// frontend) get an empty list on any auth failure rather than an error, to
+// degrade gracefully when signed out — an API key that's simply not
+// entitled to api_access gets a real 403 instead, since a real key was
+// presented and deserves a real answer.
 export async function GET(request: NextRequest) {
   try {
-    // Check if database is configured
     if (!process.env.DATABASE_URL) {
       return NextResponse.json([])
     }
 
+    const identity = await resolveApiIdentity(request)
+    if (!identity) {
+      return NextResponse.json([])
+    }
+    if (identity.authMethod === 'api-key') {
+      const gateError = await checkApiAccessGate(identity)
+      if (gateError) {
+        return NextResponse.json({ error: gateError }, { status: 403 })
+      }
+    }
+
     const searchParams = request.nextUrl.searchParams
-    const userId = searchParams.get('userId')
     const limit = parseInt(searchParams.get('limit') || '10')
 
     const scans = await prisma.scan.findMany({
-      where: userId ? { userId } : {},
+      where: { organizationId: identity.organizationId },
       include: {
         violations: {
           select: {
@@ -38,20 +58,27 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/scans - Create a new scan
+// POST /api/scans - Create a scan record directly (used for imports/manual entry,
+// not the primary scan flow which is POST /api/scan)
 export async function POST(request: NextRequest) {
   try {
+    const ctx = await requireOrganizationContext()
+    if (!ctx.ok) {
+      return NextResponse.json({ error: ctx.error }, { status: ctx.status })
+    }
+
     const body = await request.json()
-    const { url, complianceScore, pagesScanned, violations, userId } = body
+    const { url, complianceScore, pagesScanned, violations } = body
 
     const scan = await prisma.scan.create({
       data: {
         url,
         complianceScore,
         pagesScanned,
-        userId: userId || null,
+        organizationId: ctx.organizationId,
+        createdByUserId: ctx.userId,
         violations: {
-          create: violations.map((v: any) => ({
+          create: (violations || []).map((v: any) => ({
             violationId: v.id,
             description: v.description,
             help: v.help,

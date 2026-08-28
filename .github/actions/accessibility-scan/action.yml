@@ -1,0 +1,95 @@
+name: 'Accessibility Navigator Scan'
+description: 'Run a WCAG accessibility scan and fail the job if the change introduces new violations'
+author: 'Accessibility Navigator'
+
+inputs:
+  url:
+    description: 'URL to scan (e.g. a preview/staging deployment URL)'
+    required: true
+  api-key:
+    description: 'Accessibility Navigator API key. Store this as a repository secret, never as a literal value.'
+    required: true
+  api-base-url:
+    description: 'Base URL of your Accessibility Navigator deployment'
+    required: false
+    default: 'https://accessibility-navigator.com'
+  fail-on:
+    description: 'Minimum severity that fails the job: critical, serious, moderate, or any'
+    required: false
+    default: 'critical'
+  max-pages:
+    description: 'Number of pages to scan starting from url'
+    required: false
+    default: '1'
+
+outputs:
+  passed:
+    description: '"true" if no new violations at or above the fail-on threshold were found'
+    value: ${{ steps.scan.outputs.passed }}
+  report-url:
+    description: 'URL to the full scan report'
+    value: ${{ steps.scan.outputs.report-url }}
+  compliance-score:
+    description: 'Compliance score (0-100) for this scan'
+    value: ${{ steps.scan.outputs.compliance-score }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: scan
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        BODY=$(jq -n \
+          --arg url "${{ inputs.url }}" \
+          --arg failOn "${{ inputs.fail-on }}" \
+          --argjson maxPages "${{ inputs.max-pages }}" \
+          '{url: $url, failOn: $failOn, options: {maxPages: $maxPages}}')
+
+        HTTP_STATUS=$(curl -sS -o /tmp/accessibility-scan-response.json -w '%{http_code}' \
+          -X POST "${{ inputs.api-base-url }}/api/ci/scan" \
+          -H "Authorization: Bearer ${{ inputs.api-key }}" \
+          -H "Content-Type: application/json" \
+          -d "$BODY")
+
+        cat /tmp/accessibility-scan-response.json
+
+        if [ "$HTTP_STATUS" -ge 400 ]; then
+          ERROR=$(jq -r '.error // "Unknown error"' /tmp/accessibility-scan-response.json)
+          echo "::error::Accessibility scan request failed (HTTP $HTTP_STATUS): $ERROR"
+          exit 1
+        fi
+
+        PASSED=$(jq -r '.passed' /tmp/accessibility-scan-response.json)
+        REPORT_URL=$(jq -r '.reportUrl // empty' /tmp/accessibility-scan-response.json)
+        SCORE=$(jq -r '.complianceScore' /tmp/accessibility-scan-response.json)
+        NEW_COUNT=$(jq -r '.newViolations | length' /tmp/accessibility-scan-response.json)
+
+        {
+          echo "passed=$PASSED"
+          echo "report-url=$REPORT_URL"
+          echo "compliance-score=$SCORE"
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo "## Accessibility scan"
+          echo ""
+          echo "**Compliance score:** $SCORE/100"
+          echo "**Report:** $REPORT_URL"
+          echo ""
+          if [ "$PASSED" = "true" ]; then
+            echo "✅ No new violations at or above **${{ inputs.fail-on }}** severity."
+          else
+            echo "❌ $NEW_COUNT new violation(s) at or above **${{ inputs.fail-on }}** severity:"
+            echo ""
+            jq -r '.newViolations[] | "- **\(.impact)** \(.wcagReference // ""): \(.help)"' /tmp/accessibility-scan-response.json
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        if [ "$PASSED" != "true" ]; then
+          echo "::error::Accessibility scan found $NEW_COUNT new violation(s) at or above '${{ inputs.fail-on }}' severity. Report: $REPORT_URL"
+          exit 1
+        fi
+
+        echo "Accessibility scan passed — no new violations at or above '${{ inputs.fail-on }}' severity."

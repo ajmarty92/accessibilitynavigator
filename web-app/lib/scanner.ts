@@ -15,9 +15,10 @@ export interface ScanResult {
     userAgent: string
   }
   performanceMetrics?: {
-    accessibilityScore?: number
-    performanceScore?: number
-    bestPracticesScore?: number
+    domContentLoaded?: number
+    loadComplete?: number
+    firstPaint?: number
+    firstContentfulPaint?: number
     coverage?: {
       css: any
       js: any
@@ -43,7 +44,7 @@ export async function scanWebsite(url: string, options: ScanOptions = {}): Promi
   } = options
 
   const browser = await puppeteer.launch({ 
-    headless: 'new',
+    headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   })
   
@@ -85,7 +86,7 @@ export async function scanWebsite(url: string, options: ScanOptions = {}): Promi
       .analyze()
     
     // Run custom accessibility checks
-    let customResults = { violations: [], passes: [] }
+    let customResults: { violations: any[]; passes: any[] } = { violations: [], passes: [] }
     if (customRules) {
       customResults = await runCustomAccessibilityChecks(page, framework)
     }
@@ -132,18 +133,19 @@ export async function scanWebsite(url: string, options: ScanOptions = {}): Promi
 }
 
 async function runCustomAccessibilityChecks(page: any, framework: string): Promise<{ violations: any[], passes: any[] }> {
-  const customChecks = await page.evaluate((framework) => {
+  const customChecks = await page.evaluate((framework: string) => {
     const results = {
       'react-aria-compliance': [] as any[],
       'enhanced-color-contrast': [] as any[],
       'screen-reader-navigation': [] as any[],
       'form-accessibility': [] as any[],
-      'focus-management': [] as any[]
+      'focus-management': [] as any[],
+      'media-captions': [] as any[]
     };
 
     // React-specific checks
     if (framework === 'react') {
-      const issues = []
+      const issues: any[] = []
       const reactElements = document.querySelectorAll('[data-reactroot], [class*="react"], [id*="react"]')
       
       reactElements.forEach((element, index) => {
@@ -162,7 +164,7 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
 
     // Enhanced color contrast check
     {
-      const issues = []
+      const issues: any[] = []
       const textElements = document.querySelectorAll('p, h1, h2, h3, h4, h5, h6, span, div, a, button')
       
       textElements.forEach((element, index) => {
@@ -173,7 +175,7 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
         // Check for small text with insufficient contrast
         if (fontSize < 16 && fontWeight !== 'bold' && fontWeight !== '700') {
           const color = styles.color
-          const backgroundColor = styles.backgroundColor || window.getComputedStyle(element.parentElement).backgroundColor
+          const backgroundColor = styles.backgroundColor || window.getComputedStyle(element.parentElement || document.documentElement).backgroundColor
           
           // Simple contrast check (would need proper color contrast library in production)
           if (color === 'rgb(128, 128, 128)' && backgroundColor === 'rgb(255, 255, 255)') {
@@ -192,7 +194,7 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
 
     // Screen reader navigation check
     {
-      const issues = []
+      const issues: any[] = []
       
       // Check for proper heading structure
       const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6')
@@ -227,7 +229,7 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
 
     // Form accessibility check
     {
-      const issues = []
+      const issues: any[] = []
       const forms = document.querySelectorAll('form')
       
       forms.forEach((form, formIndex) => {
@@ -286,7 +288,7 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
 
     // Focus management check
     {
-      const issues = []
+      const issues: any[] = []
       
       // Check for visible focus indicators
       const styleSheet = Array.from(document.styleSheets)
@@ -334,6 +336,79 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
       results['focus-management'] = issues;
     }
 
+    // Media captions & transcripts check. axe-core flags some missing
+    // captions but doesn't check description tracks or audio transcripts,
+    // and can't reach into third-party embeds at all.
+    {
+      const issues: any[] = []
+
+      const videos = document.querySelectorAll('video')
+      videos.forEach((video, index) => {
+        const tracks = Array.from(video.querySelectorAll('track'))
+        const hasCaptions = tracks.some(t => ['captions', 'subtitles'].includes(t.getAttribute('kind') || ''))
+        const hasDescriptions = tracks.some(t => t.getAttribute('kind') === 'descriptions')
+
+        if (!hasCaptions) {
+          issues.push({
+            id: `video-no-captions-${index}`,
+            description: 'Video element has no caption or subtitle track (<track kind="captions"> or kind="subtitles">)',
+            impact: 'serious',
+            element: video.outerHTML.substring(0, 150),
+            wcagReference: 'WCAG 1.2.2'
+          })
+        }
+
+        // Only worth flagging when the video has enough of a soundtrack to
+        // plausibly need audio description — an autoplaying muted/loop
+        // background video almost never does, and flagging every <video>
+        // on the page for this produces mostly noise.
+        if (!hasDescriptions && !video.hasAttribute('muted') && !video.hasAttribute('loop')) {
+          issues.push({
+            id: `video-no-audio-description-${index}`,
+            description: 'Video has no audio description track (<track kind="descriptions">) — verify visual-only information is also conveyed in the audio',
+            impact: 'moderate',
+            element: video.outerHTML.substring(0, 150),
+            wcagReference: 'WCAG 1.2.3'
+          })
+        }
+      })
+
+      const audios = document.querySelectorAll('audio')
+      audios.forEach((audio, index) => {
+        const nearbyTranscript = audio.closest('figure, div, section')?.querySelector(
+          'a[href*="transcript" i], [class*="transcript" i], [id*="transcript" i]'
+        )
+        if (!nearbyTranscript) {
+          issues.push({
+            id: `audio-no-transcript-${index}`,
+            description: 'Audio element has no transcript link or text detected nearby',
+            impact: 'moderate',
+            element: audio.outerHTML.substring(0, 150),
+            wcagReference: 'WCAG 1.2.1'
+          })
+        }
+      })
+
+      // Third-party embeds (YouTube, Vimeo, Wistia, etc.) can't be
+      // inspected from this page — captions live on the source platform.
+      // Flagged as informational (minor) so it surfaces for manual review
+      // without being scored as a confirmed violation.
+      const embeds = document.querySelectorAll(
+        'iframe[src*="youtube" i], iframe[src*="youtu.be" i], iframe[src*="vimeo" i], iframe[src*="wistia" i]'
+      )
+      embeds.forEach((embed, index) => {
+        issues.push({
+          id: `embedded-video-verify-${index}`,
+          description: 'Embedded video player detected — captions can\'t be verified from this page; confirm they are enabled on the source platform',
+          impact: 'minor',
+          element: embed.outerHTML.substring(0, 150),
+          wcagReference: 'WCAG 1.2.2'
+        })
+      })
+
+      results['media-captions'] = issues
+    }
+
     return results;
   }, framework);
 
@@ -342,7 +417,8 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
     ...customChecks['enhanced-color-contrast'],
     ...customChecks['screen-reader-navigation'],
     ...customChecks['form-accessibility'],
-    ...customChecks['focus-management']
+    ...customChecks['focus-management'],
+    ...customChecks['media-captions']
   ]
 
   const passes = [
@@ -359,30 +435,22 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
 
 async function getPerformanceMetrics(page: any, url: string): Promise<any> {
   try {
-    // Get basic performance metrics
+    // Real Navigation Timing / Paint Timing values only. Accessibility and
+    // "best practices" scores are NOT computed here — a page-load metric
+    // has no bearing on WCAG compliance. The compliance score is derived
+    // from actual scan violations in lib/compliance-score.ts instead.
     const metrics = await page.evaluate(() => {
       const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming
-      
+
       return {
         domContentLoaded: navigation.domContentLoadedEventEnd - navigation.domContentLoadedEventStart,
         loadComplete: navigation.loadEventEnd - navigation.loadEventStart,
         firstPaint: performance.getEntriesByType('paint')[0]?.startTime || 0,
         firstContentfulPaint: performance.getEntriesByType('paint')[1]?.startTime || 0,
-        largestContentfulPaint: 0 // Would need PerformanceObserver for this
       }
     })
 
-    // Mock accessibility score calculation (would need actual Lighthouse integration)
-    const accessibilityScore = Math.max(0, Math.min(100, 95 - Math.random() * 20))
-    const performanceScore = Math.max(0, Math.min(100, 85 - Math.random() * 30))
-    const bestPracticesScore = Math.max(0, Math.min(100, 90 - Math.random() * 15))
-
-    return {
-      ...metrics,
-      accessibilityScore,
-      performanceScore,
-      bestPracticesScore
-    }
+    return metrics
   } catch (error) {
     console.error('Performance metrics collection failed:', error)
     return null
@@ -391,7 +459,7 @@ async function getPerformanceMetrics(page: any, url: string): Promise<any> {
 
 // Framework detection
 export async function detectFramework(url: string): Promise<'react' | 'vue' | 'angular' | 'vanilla'> {
-  const browser = await puppeteer.launch({ headless: 'new' })
+  const browser = await puppeteer.launch({ headless: true })
   
   try {
     const page = await browser.newPage()
@@ -405,13 +473,13 @@ export async function detectFramework(url: string): Promise<'react' | 'vue' | 'a
       }
       
       // Check for Vue
-      if (window.Vue || document.querySelector('[data-v-]') ||
+      if ((window as any).Vue || document.querySelector('[data-v-]') ||
           Array.from(document.querySelectorAll('*')).some(el => el.getAttribute('data-v-'))) {
         return 'vue'
       }
-      
+
       // Check for Angular
-      if (window.angular || document.querySelector('[ng-app], [ng-controller]') ||
+      if ((window as any).angular || document.querySelector('[ng-app], [ng-controller]') ||
           Array.from(document.querySelectorAll('*')).some(el => el.getAttribute('ng-'))) {
         return 'angular'
       }
@@ -425,42 +493,212 @@ export async function detectFramework(url: string): Promise<'react' | 'vue' | 'a
   }
 }
 
-// Multi-page scanning for comprehensive analysis
-export async function scanMultiplePages(baseUrl: string, options: ScanOptions = {}): Promise<ScanResult[]> {
-  const { maxPages = 5, crawlDepth = 2 } = options
-  
-  const browser = await puppeteer.launch({ headless: 'new' })
-  
+// --- Page discovery for multi-page scans -----------------------------------
+//
+// Prefers sitemap.xml (fast, authoritative, and what a real audit tool
+// should check first) and falls back to a breadth-first crawl of same-origin
+// links, honoring crawlDepth (previously accepted as an option but never
+// actually used — the old implementation only ever looked at links found on
+// the first page) and robots.txt Disallow rules.
+
+function normalizeUrl(raw: string): string | null {
   try {
-    const page = await browser.newPage()
-    await page.goto(baseUrl, { waitUntil: 'networkidle2' })
-    
-    // Discover links to scan
-    const links = await page.evaluate((maxPages) => {
-      const linkElements = Array.from(document.querySelectorAll('a[href]'))
-      return linkElements
-        .map(link => (link as HTMLAnchorElement).href)
-        .filter(href => href.startsWith(window.location.origin))
-        .slice(0, maxPages - 1) // -1 because we'll include the base URL
-    }, maxPages)
-    
-    await browser.close()
-    
-    // Scan each discovered page
-    const urls = [baseUrl, ...links].slice(0, maxPages)
-    const results: ScanResult[] = []
-    
-    for (const url of urls) {
-      try {
-        const result = await scanWebsite(url, options)
-        results.push(result)
-      } catch (error) {
-        console.error(`Failed to scan ${url}:`, error)
+    const u = new URL(raw)
+    u.hash = ''
+    u.search = ''
+    if (u.pathname.length > 1 && u.pathname.endsWith('/')) {
+      u.pathname = u.pathname.slice(0, -1)
+    }
+    return u.toString()
+  } catch {
+    return null
+  }
+}
+
+async function fetchRobotsDisallowRules(origin: string): Promise<string[]> {
+  try {
+    const response = await fetch(`${origin}/robots.txt`, { signal: AbortSignal.timeout(5000) })
+    if (!response.ok) return []
+
+    const text = await response.text()
+    const disallowed: string[] = []
+    let inWildcardBlock = false
+
+    for (const rawLine of text.split('\n')) {
+      const line = rawLine.trim()
+      if (!line || line.startsWith('#')) continue
+
+      const [directive, ...rest] = line.split(':')
+      const value = rest.join(':').trim()
+      const key = directive.trim().toLowerCase()
+
+      if (key === 'user-agent') {
+        inWildcardBlock = value === '*'
+      } else if (key === 'disallow' && inWildcardBlock && value) {
+        disallowed.push(value)
       }
     }
-    
-    return results
+
+    return disallowed
+  } catch {
+    // robots.txt missing or unreachable — treat as no restrictions
+    return []
+  }
+}
+
+function isDisallowed(url: string, disallowRules: string[]): boolean {
+  if (disallowRules.length === 0) return false
+  try {
+    const path = new URL(url).pathname
+    return disallowRules.some(rule => path.startsWith(rule))
+  } catch {
+    return false
+  }
+}
+
+// Pulls page URLs out of a sitemap.xml (or a sitemap index, one level deep).
+// Uses a plain regex over <loc> tags rather than pulling in an XML parser
+// dependency for what is a very constrained, well-known document shape.
+async function fetchSitemapUrls(origin: string, maxUrls: number): Promise<string[]> {
+  const extractLocs = (xml: string): string[] =>
+    Array.from(xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)).map(m => m[1])
+
+  try {
+    const response = await fetch(`${origin}/sitemap.xml`, { signal: AbortSignal.timeout(8000) })
+    if (!response.ok) return []
+
+    const xml = await response.text()
+    let locs = extractLocs(xml)
+
+    // A sitemap index references child sitemaps instead of pages directly.
+    const childSitemaps = locs.filter(loc => loc.endsWith('.xml')).slice(0, 3)
+    if (childSitemaps.length > 0) {
+      const childUrls = await Promise.all(
+        childSitemaps.map(async childUrl => {
+          try {
+            const childResponse = await fetch(childUrl, { signal: AbortSignal.timeout(8000) })
+            if (!childResponse.ok) return []
+            return extractLocs(await childResponse.text())
+          } catch {
+            return []
+          }
+        })
+      )
+      locs = childUrls.flat()
+    }
+
+    return locs.slice(0, maxUrls * 2) // over-fetch a bit; caller filters/dedupes
+  } catch {
+    return []
+  }
+}
+
+async function bfsCrawl(
+  baseUrl: string,
+  maxPages: number,
+  crawlDepth: number,
+  disallowRules: string[]
+): Promise<string[]> {
+  const origin = new URL(baseUrl).origin
+  const start = normalizeUrl(baseUrl)
+  if (!start) return [baseUrl]
+
+  const visited = new Set<string>()
+  const discovered: string[] = []
+  const queue: { url: string; depth: number }[] = [{ url: start, depth: 0 }]
+
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  })
+
+  try {
+    const page = await browser.newPage()
+
+    while (queue.length > 0 && discovered.length < maxPages) {
+      const next = queue.shift()!
+      if (visited.has(next.url) || isDisallowed(next.url, disallowRules)) continue
+      visited.add(next.url)
+      discovered.push(next.url)
+
+      if (next.depth >= crawlDepth || discovered.length >= maxPages) continue
+
+      try {
+        await page.goto(next.url, { waitUntil: 'networkidle2', timeout: 20000 })
+        const links: string[] = await page.evaluate(() =>
+          Array.from(document.querySelectorAll('a[href]')).map(a => (a as HTMLAnchorElement).href)
+        )
+
+        for (const link of links) {
+          const normalized = normalizeUrl(link)
+          if (normalized && normalized.startsWith(origin) && !visited.has(normalized)) {
+            queue.push({ url: normalized, depth: next.depth + 1 })
+          }
+        }
+      } catch (error) {
+        // Page in the queue failed to load during discovery — it's still
+        // kept as a discovered URL to attempt scanning, just without
+        // contributing further links to the crawl.
+        console.error(`Crawl discovery failed for ${next.url}:`, error)
+      }
+    }
+
+    return discovered
   } finally {
     await browser.close()
   }
+}
+
+export interface DiscoveredPages {
+  urls: string[]
+  source: 'sitemap' | 'crawl'
+}
+
+export async function discoverPages(
+  baseUrl: string,
+  maxPages: number,
+  crawlDepth: number
+): Promise<DiscoveredPages> {
+  const origin = new URL(baseUrl).origin
+  const disallowRules = await fetchRobotsDisallowRules(origin)
+
+  const sitemapUrls = await fetchSitemapUrls(origin, maxPages)
+  if (sitemapUrls.length > 0) {
+    const base = normalizeUrl(baseUrl)
+    const filtered = sitemapUrls
+      .map(normalizeUrl)
+      .filter((u): u is string => !!u && u.startsWith(origin) && !isDisallowed(u, disallowRules))
+
+    const ordered = base ? [base, ...filtered.filter(u => u !== base)] : filtered
+    const deduped = Array.from(new Set(ordered)).slice(0, maxPages)
+
+    if (deduped.length > 0) {
+      return { urls: deduped, source: 'sitemap' }
+    }
+  }
+
+  const crawled = await bfsCrawl(baseUrl, maxPages, crawlDepth, disallowRules)
+  return { urls: crawled, source: 'crawl' }
+}
+
+// Multi-page scanning for comprehensive analysis
+export async function scanMultiplePages(
+  baseUrl: string,
+  options: ScanOptions = {}
+): Promise<{ results: ScanResult[]; discoveryMethod: 'sitemap' | 'crawl' }> {
+  const { maxPages = 5, crawlDepth = 2 } = options
+
+  const { urls, source } = await discoverPages(baseUrl, maxPages, crawlDepth)
+
+  const results: ScanResult[] = []
+  for (const url of urls) {
+    try {
+      const result = await scanWebsite(url, options)
+      results.push(result)
+    } catch (error) {
+      console.error(`Failed to scan ${url}:`, error)
+    }
+  }
+
+  return { results, discoveryMethod: source }
 }

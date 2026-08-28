@@ -122,8 +122,8 @@ ${i + 1}. VIOLATION ID: ${v.id}
    WCAG Reference: ${v.wcagReference}
    Impact: ${v.impact}
    Help: ${v.help}
-   Current HTML: ${v.nodes[0]?.html || 'No HTML available'}
-   Target Element: ${v.nodes[0]?.target?.join(' > ') || 'Unknown'}
+   Current HTML: ${v.nodes?.[0]?.html || 'No HTML available'}
+   Target Element: ${v.nodes?.[0]?.target?.join(' > ') || 'Unknown'}
 `).join('\n')}
 
 ${frameworkSpecific}
@@ -244,7 +244,7 @@ function parseCodeFixResponse(
       
       return {
         framework: framework as any,
-        originalCode: violation.nodes[0]?.html || '',
+        originalCode: violation.nodes?.[0]?.html || '',
         fixedCode: fix.fixedCode || '',
         explanation: fix.explanation || '',
         steps: fix.steps || [],
@@ -275,7 +275,7 @@ function generateBasicFixes(
       id: `basic-fix-${violation.id}-${Date.now()}`,
       violationId: violation.id,
       framework: framework as any,
-      originalCode: violation.nodes[0]?.html || '',
+      originalCode: violation.nodes?.[0]?.html || '',
       impact: violation.impact,
       ...basicFix
     }
@@ -396,7 +396,7 @@ function generateBasicFixForViolation(
 }
 
 function generateContrastFix(violation: Violation): string {
-  const originalHtml = violation.nodes[0]?.html || ''
+  const originalHtml = violation.nodes?.[0]?.html || ''
   
   // Basic contrast fix - in real implementation, this would be more sophisticated
   if (originalHtml.includes('color:')) {
@@ -407,7 +407,7 @@ function generateContrastFix(violation: Violation): string {
 }
 
 function generateAriaFix(violation: Violation, framework: string): string {
-  const originalHtml = violation.nodes[0]?.html || ''
+  const originalHtml = violation.nodes?.[0]?.html || ''
   
   if (framework === 'react') {
     if (originalHtml.includes('<button') && !originalHtml.includes('aria-label')) {
@@ -429,7 +429,7 @@ function generateAriaFix(violation: Violation, framework: string): string {
 }
 
 function generateFocusFix(violation: Violation, framework: string): string {
-  const originalHtml = violation.nodes[0]?.html || ''
+  const originalHtml = violation.nodes?.[0]?.html || ''
   
   // Add focus styles if missing
   if (!originalHtml.includes('focus') && !originalHtml.includes(':focus')) {
@@ -450,7 +450,7 @@ function generateFocusFix(violation: Violation, framework: string): string {
 }
 
 function generateGenericFix(violation: Violation): string {
-  const originalHtml = violation.nodes[0]?.html || ''
+  const originalHtml = violation.nodes?.[0]?.html || ''
   
   // Add appropriate accessibility attributes
   if (!originalHtml.includes('role') && !originalHtml.includes('aria-')) {
@@ -477,26 +477,26 @@ function detectPrimaryFramework(
   // Check violations for framework indicators
   const hasReact = violations.some(v => 
     v.framework === 'react' || 
-    v.tags.some(tag => tag.includes('react')) ||
-    v.nodes.some(node => node.html.includes('data-reactroot'))
+    (v.tags ?? []).some(tag => tag.includes('react')) ||
+    (v.nodes ?? []).some(node => node.html.includes('data-reactroot'))
   )
   
   const hasVue = violations.some(v => 
     v.framework === 'vue' || 
-    v.tags.some(tag => tag.includes('vue')) ||
-    v.nodes.some(node => node.html.includes('data-v-'))
+    (v.tags ?? []).some(tag => tag.includes('vue')) ||
+    (v.nodes ?? []).some(node => node.html.includes('data-v-'))
   )
   
   const hasAngular = violations.some(v => 
     v.framework === 'angular' || 
-    v.tags.some(tag => tag.includes('angular')) ||
-    v.nodes.some(node => node.html.includes('ng-'))
+    (v.tags ?? []).some(tag => tag.includes('angular')) ||
+    (v.nodes ?? []).some(node => node.html.includes('ng-'))
   )
   
   const hasSvelte = violations.some(v => 
     v.framework === 'svelte' || 
-    v.tags.some(tag => tag.includes('svelte')) ||
-    v.nodes.some(node => node.html.includes('data-svelte-'))
+    (v.tags ?? []).some(tag => tag.includes('svelte')) ||
+    (v.nodes ?? []).some(node => node.html.includes('data-svelte-'))
   )
   
   if (hasReact) return 'react'

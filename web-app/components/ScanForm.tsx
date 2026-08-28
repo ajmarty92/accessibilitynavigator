@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, Loader2, Settings, ChevronDown, CheckCircle, Zap, Code, TrendingUp } from 'lucide-react'
 import { useMutation } from '@tanstack/react-query'
+import { useSession } from 'next-auth/react'
 import toast from 'react-hot-toast'
 import { useRouter } from 'next/navigation'
 
@@ -17,12 +18,13 @@ export default function ScanForm({ onScanStart }: ScanFormProps) {
   const [options, setOptions] = useState({
     maxPages: 10,
     useAI: true,
-    depth: 1,
+    crawlDepth: 1,
     customRules: true,
     includePerformance: true,
   })
 
   const router = useRouter()
+  const { status } = useSession()
 
   const scanMutation = useMutation({
     mutationFn: async (data: { url: string; options: typeof options }) => {
@@ -67,7 +69,7 @@ export default function ScanForm({ onScanStart }: ScanFormProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!url.trim()) {
       toast.error('Please enter a URL')
       return
@@ -83,6 +85,12 @@ export default function ScanForm({ onScanStart }: ScanFormProps) {
       new URL(formattedUrl)
     } catch {
       toast.error('Please enter a valid URL')
+      return
+    }
+
+    if (status !== 'authenticated') {
+      toast('Create a free account to run a scan', { icon: '🔒' })
+      router.push(`/register?url=${encodeURIComponent(formattedUrl)}`)
       return
     }
 
@@ -197,8 +205,8 @@ export default function ScanForm({ onScanStart }: ScanFormProps) {
                     </label>
                     <select
                       id="depth"
-                      value={options.depth}
-                      onChange={(e) => setOptions({ ...options, depth: parseInt(e.target.value) })}
+                      value={options.crawlDepth}
+                      onChange={(e) => setOptions({ ...options, crawlDepth: parseInt(e.target.value) })}
                       className="form-input"
                       disabled={scanMutation.isPending}
                     >

@@ -1,18 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { resolveApiIdentity, checkApiAccessGate } from '@/lib/api-auth'
 
-// GET /api/scans/[scanId] - Get a specific scan with all violations
+// Reads the caller's session on every request — never statically
+// pre-rendered/cached, or every user would see the same response.
+export const dynamic = 'force-dynamic'
+
+// GET /api/scans/[scanId] - Get a specific scan with all violations.
+// Scoped to the caller's organization. Also serves as the public API's
+// scan-detail endpoint (session or API key).
 export async function GET(
   request: NextRequest,
   { params }: { params: { scanId: string } }
 ) {
   try {
-    // Check if database is configured
     if (!process.env.DATABASE_URL) {
       return NextResponse.json(
         { error: 'Database not configured' },
         { status: 404 }
       )
+    }
+
+    const identity = await resolveApiIdentity(request)
+    if (!identity) {
+      return NextResponse.json({ error: 'Sign in, or provide a valid API key' }, { status: 401 })
+    }
+    const gateError = await checkApiAccessGate(identity)
+    if (gateError) {
+      return NextResponse.json({ error: gateError }, { status: 403 })
     }
 
     const scan = await prisma.scan.findUnique({
@@ -25,6 +40,7 @@ export async function GET(
             priorityScore: 'desc',
           },
         },
+        metadata: true,
       },
     })
 
@@ -35,7 +51,31 @@ export async function GET(
       )
     }
 
-    return NextResponse.json(scan)
+    if (scan.organizationId !== identity.organizationId) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    }
+
+    const codeFixes = await prisma.codeFix.findMany({ where: { scanId: scan.id } })
+
+    return NextResponse.json({
+      scanId: scan.id,
+      url: scan.url,
+      timestamp: scan.timestamp,
+      complianceScore: scan.complianceScore,
+      pagesScanned: scan.pagesScanned,
+      violations: scan.violations,
+      frameworkDetection: scan.metadata?.frameworkDetection ?? null,
+      codeFixes,
+      enhanced: scan.metadata
+        ? {
+            aiPrioritization: scan.metadata.aiAnalysisEnabled,
+            codeGeneration: scan.metadata.codeFixesEnabled,
+            customRules: scan.metadata.customRulesEnabled,
+            performanceAnalysis: scan.metadata.performanceAnalysis,
+            frameworkDetection: scan.metadata.frameworkDetectionEnabled,
+          }
+        : undefined,
+    })
   } catch (error) {
     console.error('Error fetching scan:', error)
     return NextResponse.json(

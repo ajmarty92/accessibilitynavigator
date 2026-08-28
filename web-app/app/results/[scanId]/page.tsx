@@ -3,7 +3,10 @@
 import { useParams, useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Copy, CheckCircle, AlertCircle, Code, Eye, Download, Filter, Brain } from 'lucide-react'
+import { Copy, CheckCircle, AlertCircle, Code, Eye, Download, FileText, ClipboardCheck, Brain, Scale } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { generateVpatRows } from '@/lib/vpat-generator'
+import { summarizeLegalRisk, legalRiskSummaryText } from '@/lib/legal-report-generator'
 
 interface Violation {
   id: string
@@ -52,6 +55,26 @@ interface CodeFix {
   }
 }
 
+interface ManualAuditItem {
+  id: string
+  category: string
+  code: string
+  title: string
+  guidance: string
+  wcagReference?: string | null
+  status: 'not_started' | 'pass' | 'fail' | 'not_applicable'
+  notes?: string | null
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  'keyboard-navigation': 'Keyboard Navigation',
+  'screen-reader': 'Screen Reader',
+  'reading-order': 'Reading Order & Structure',
+  'color-and-contrast': 'Color & Contrast',
+  'zoom-and-reflow': 'Zoom & Reflow',
+  forms: 'Forms',
+}
+
 interface ScanResult {
   scanId: string
   url: string
@@ -86,10 +109,12 @@ export default function ResultsPage() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedViolation, setSelectedViolation] = useState<Violation | null>(null)
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'violations' | 'fixes'>('overview')
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'violations' | 'fixes' | 'audit'>('overview')
   const [filterPriority, setFilterPriority] = useState<string>('all')
   const [sortBy, setSortBy] = useState<'priority' | 'impact' | 'effort'>('priority')
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
+  const [auditItems, setAuditItems] = useState<ManualAuditItem[]>([])
+  const [auditLoading, setAuditLoading] = useState(true)
 
   useEffect(() => {
     const fetchScanResult = async () => {
@@ -117,6 +142,42 @@ export default function ResultsPage() {
 
     fetchScanResult()
   }, [scanId])
+
+  useEffect(() => {
+    const fetchAuditItems = async () => {
+      try {
+        const response = await fetch(`/api/scans/${scanId}/audit`)
+        if (response.ok) {
+          const data = await response.json()
+          setAuditItems(data.items || [])
+        }
+      } catch (error) {
+        console.error('Error fetching manual audit checklist:', error)
+      } finally {
+        setAuditLoading(false)
+      }
+    }
+
+    fetchAuditItems()
+  }, [scanId])
+
+  const handleAuditUpdate = async (itemId: string, updates: { status?: string; notes?: string }) => {
+    const previous = auditItems
+    setAuditItems(items => items.map(item => (item.id === itemId ? { ...item, ...updates } as ManualAuditItem : item)))
+
+    try {
+      const response = await fetch(`/api/scans/${scanId}/audit`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId, ...updates }),
+      })
+      if (!response.ok) throw new Error('Failed to save')
+    } catch (error) {
+      console.error('Failed to save checklist update:', error)
+      setAuditItems(previous)
+      toast.error('Failed to save checklist update')
+    }
+  }
 
   if (loading) {
     return (
@@ -179,6 +240,281 @@ export default function ResultsPage() {
     } catch (error) {
       console.error('Failed to copy code:', error)
     }
+  }
+
+  const handleExportCsv = () => {
+    if (!scanResult) return
+
+    const headers = ['Priority', 'Impact', 'WCAG Reference', 'Issue', 'Description', 'Elements Affected']
+    const escape = (value: string) => `"${(value || '').replace(/"/g, '""')}"`
+
+    const rows = scanResult.violations.map(v => [
+      v.priority || 'medium',
+      v.impact,
+      v.wcagReference || '',
+      v.help,
+      v.description,
+      String(v.elementCount ?? v.nodes?.length ?? ''),
+    ].map(escape).join(','))
+
+    const csv = [headers.map(escape).join(','), ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `accessibility-report-${scanId}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+    toast.success('CSV report downloaded')
+  }
+
+  const handleExportPdf = async () => {
+    if (!scanResult) return
+
+    const { jsPDF } = await import('jspdf')
+    const doc = new jsPDF()
+    const marginX = 14
+    const pageHeight = doc.internal.pageSize.getHeight()
+    const pageWidth = doc.internal.pageSize.getWidth()
+    let y = 20
+
+    const ensureSpace = (needed: number) => {
+      if (y + needed > pageHeight - 16) {
+        doc.addPage()
+        y = 20
+      }
+    }
+
+    doc.setFontSize(18)
+    doc.text('Accessibility Compliance Report', marginX, y)
+    y += 9
+
+    doc.setFontSize(10)
+    doc.setTextColor(90)
+    doc.text(scanResult.url, marginX, y)
+    y += 6
+    doc.text(`Generated ${new Date().toLocaleString()}`, marginX, y)
+    y += 10
+
+    doc.setTextColor(0)
+    doc.setFontSize(14)
+    doc.text(`Compliance Score: ${scanResult.complianceScore}/100`, marginX, y)
+    y += 7
+    doc.setFontSize(11)
+    doc.text(
+      `${scanResult.violations.length} violations across ${scanResult.pagesScanned} page(s)`,
+      marginX,
+      y
+    )
+    y += 12
+
+    doc.setFontSize(13)
+    doc.text('Violations', marginX, y)
+    y += 8
+
+    scanResult.violations.forEach((violation, index) => {
+      ensureSpace(24)
+      doc.setFontSize(11)
+      doc.setFont('helvetica', 'bold')
+      const title = doc.splitTextToSize(
+        `${index + 1}. [${(violation.priority || 'medium').toUpperCase()}] ${violation.help}`,
+        pageWidth - marginX * 2
+      )
+      doc.text(title, marginX, y)
+      y += title.length * 5.5
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      const meta = `Impact: ${violation.impact}${violation.wcagReference ? ` · WCAG: ${violation.wcagReference}` : ''}`
+      doc.text(meta, marginX, y)
+      y += 5
+
+      const description = doc.splitTextToSize(violation.description, pageWidth - marginX * 2)
+      ensureSpace(description.length * 5)
+      doc.text(description, marginX, y)
+      y += description.length * 5 + 4
+    })
+
+    doc.save(`accessibility-report-${scanId}.pdf`)
+    toast.success('PDF report downloaded')
+  }
+
+  const handleExportVpat = async () => {
+    if (!scanResult) return
+
+    const rows = generateVpatRows(scanResult.violations, auditItems)
+    const { jsPDF } = await import('jspdf')
+    const doc = new jsPDF()
+    const marginX = 12
+    const pageHeight = doc.internal.pageSize.getHeight()
+    const pageWidth = doc.internal.pageSize.getWidth()
+    let y = 18
+
+    const ensureSpace = (needed: number) => {
+      if (y + needed > pageHeight - 14) {
+        doc.addPage()
+        y = 18
+      }
+    }
+
+    doc.setFontSize(16)
+    doc.text('VPAT 2.4 — WCAG 2.1 Edition (Draft)', marginX, y)
+    y += 8
+    doc.setFontSize(10)
+    doc.setTextColor(90)
+    doc.text(`Product/Page: ${scanResult.url}`, marginX, y)
+    y += 5
+    doc.text(`Report generated: ${new Date().toLocaleString()}`, marginX, y)
+    y += 8
+
+    doc.setFontSize(8.5)
+    const disclaimer = doc.splitTextToSize(
+      'This draft is generated from automated scan results and the manual audit checklist completed in Accessibility Navigator. "Supports" is only assigned when a criterion was both free of automated violations AND explicitly verified in a manual review — "Not Evaluated" means it requires further manual verification before conformance can be claimed. This is a starting point for a full audit, not a substitute for one.',
+      pageWidth - marginX * 2
+    )
+    doc.text(disclaimer, marginX, y)
+    y += disclaimer.length * 4 + 6
+    doc.setTextColor(0)
+
+    doc.setFontSize(9)
+    const colX = { criterion: marginX, name: marginX + 16, level: marginX + 92, conformance: marginX + 106 }
+    const drawHeader = () => {
+      doc.setFont('helvetica', 'bold')
+      doc.text('Criteria', colX.criterion, y)
+      doc.text('Level', colX.level, y)
+      doc.text('Conformance', colX.conformance, y)
+      y += 5
+      doc.setFont('helvetica', 'normal')
+    }
+    drawHeader()
+
+    rows.forEach(row => {
+      const nameLines = doc.splitTextToSize(`${row.criterion.id} ${row.criterion.name}`, 74)
+      const remarkLines = doc.splitTextToSize(row.remarks, pageWidth - marginX * 2 - 4)
+      const rowHeight = Math.max(nameLines.length, 1) * 4 + remarkLines.length * 3.6 + 2
+
+      ensureSpace(rowHeight + 2)
+      if (y === 18) drawHeader()
+
+      doc.text(nameLines, colX.name, y)
+      doc.text(row.criterion.level, colX.level, y)
+      doc.text(row.conformance, colX.conformance, y)
+      y += Math.max(nameLines.length, 1) * 4
+      doc.setTextColor(110)
+      doc.setFontSize(7.5)
+      doc.text(remarkLines, colX.name, y)
+      doc.setFontSize(9)
+      doc.setTextColor(0)
+      y += remarkLines.length * 3.6 + 3
+    })
+
+    doc.save(`vpat-draft-${scanId}.pdf`)
+    toast.success('VPAT draft downloaded')
+  }
+
+  const handleExportLegalReport = async () => {
+    if (!scanResult) return
+
+    const summary = summarizeLegalRisk(scanResult.violations, auditItems)
+    const { jsPDF } = await import('jspdf')
+    const doc = new jsPDF()
+    const marginX = 14
+    const pageHeight = doc.internal.pageSize.getHeight()
+    const pageWidth = doc.internal.pageSize.getWidth()
+    let y = 20
+
+    const ensureSpace = (needed: number) => {
+      if (y + needed > pageHeight - 16) {
+        doc.addPage()
+        y = 20
+      }
+    }
+
+    const riskColors: Record<string, [number, number, number]> = {
+      Critical: [185, 28, 28],
+      High: [194, 120, 3],
+      Medium: [161, 98, 7],
+      Low: [21, 128, 61],
+    }
+
+    doc.setFontSize(18)
+    doc.text('Accessibility Legal Risk Assessment', marginX, y)
+    y += 9
+    doc.setFontSize(10)
+    doc.setTextColor(90)
+    doc.text(`${scanResult.url} · Prepared ${new Date().toLocaleString()}`, marginX, y)
+    y += 12
+
+    const [r, g, b] = riskColors[summary.riskLevel]
+    doc.setFillColor(r, g, b)
+    doc.roundedRect(marginX, y - 5, 46, 9, 1.5, 1.5, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFontSize(11)
+    doc.text(`${summary.riskLevel.toUpperCase()} RISK`, marginX + 4, y + 1)
+    doc.setTextColor(0)
+    y += 14
+
+    doc.setFontSize(10)
+    const summaryLines = doc.splitTextToSize(legalRiskSummaryText(summary.riskLevel), pageWidth - marginX * 2)
+    doc.text(summaryLines, marginX, y)
+    y += summaryLines.length * 5 + 8
+
+    doc.setFontSize(12)
+    doc.text('Key Figures', marginX, y)
+    y += 7
+    doc.setFontSize(10)
+    const figures = [
+      `Compliance score: ${scanResult.complianceScore}/100`,
+      `Total violations: ${summary.totalViolations} (${summary.criticalCount} critical, ${summary.seriousCount} serious)`,
+      `Average AI-assessed legal risk score: ${summary.avgLegalRiskScore ?? 'N/A (AI prioritization not run)'}${summary.avgLegalRiskScore !== null ? '/10' : ''}`,
+      `Manual audit completion: ${summary.manualAuditCompletionPct}%${summary.manualAuditFailCount > 0 ? ` (${summary.manualAuditFailCount} manual check(s) failed)` : ''}`,
+      `Pages scanned: ${scanResult.pagesScanned}`,
+    ]
+    figures.forEach(line => {
+      ensureSpace(6)
+      doc.text(`• ${line}`, marginX, y)
+      y += 6
+    })
+    y += 4
+
+    if (summary.topRiskViolations.length > 0) {
+      ensureSpace(10)
+      doc.setFontSize(12)
+      doc.text('Highest-Risk Findings', marginX, y)
+      y += 7
+      doc.setFontSize(9)
+
+      summary.topRiskViolations.forEach((violation, index) => {
+        ensureSpace(14)
+        doc.setFont('helvetica', 'bold')
+        const title = doc.splitTextToSize(
+          `${index + 1}. [${violation.impact.toUpperCase()}] ${violation.help || violation.description || ''}`,
+          pageWidth - marginX * 2
+        )
+        doc.text(title, marginX, y)
+        y += title.length * 4.5
+
+        doc.setFont('helvetica', 'normal')
+        const meta = `WCAG: ${violation.wcagReference || 'N/A'}${
+          violation.legalRiskScore != null ? ` · Legal risk score: ${violation.legalRiskScore}/10` : ''
+        }`
+        doc.text(meta, marginX, y)
+        y += 6
+      })
+      y += 4
+    }
+
+    ensureSpace(20)
+    doc.setFontSize(8)
+    doc.setTextColor(120)
+    const disclaimer = doc.splitTextToSize(
+      'This report is generated from automated WCAG scanning and self-reported manual audit results. It is provided for internal risk assessment and remediation planning purposes and does not constitute legal advice. Consult qualified counsel for litigation risk assessment and regulatory compliance determinations.',
+      pageWidth - marginX * 2
+    )
+    doc.text(disclaimer, marginX, pageHeight - 20)
+
+    doc.save(`legal-risk-report-${scanId}.pdf`)
+    toast.success('Legal risk report downloaded')
   }
 
   const getFrameworkIcon = (framework: string) => {
@@ -280,6 +616,16 @@ export default function ResultsPage() {
                 Code Fixes ({scanResult.codeFixes.length})
               </button>
             )}
+            <button
+              onClick={() => setSelectedTab('audit')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                selectedTab === 'audit'
+                  ? 'border-indigo-500 text-indigo-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Manual Audit {auditItems.length > 0 && `(${auditItems.filter(i => i.status !== 'not_started').length}/${auditItems.length})`}
+            </button>
           </nav>
         </div>
       </div>
@@ -403,11 +749,78 @@ export default function ResultsPage() {
                     View Code Fixes
                   </button>
                 )}
-                <button className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2">
+                <button
+                  onClick={handleExportPdf}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                >
                   <Download className="w-4 h-4" />
-                  Export Report
+                  Export PDF
+                </button>
+                <button
+                  onClick={handleExportCsv}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <FileText className="w-4 h-4" />
+                  Export CSV
+                </button>
+                <button
+                  onClick={handleExportVpat}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <ClipboardCheck className="w-4 h-4" />
+                  Export VPAT Draft
+                </button>
+                <button
+                  onClick={handleExportLegalReport}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <Scale className="w-4 h-4" />
+                  Export Legal Risk Report
                 </button>
               </div>
+            </motion.div>
+
+            {/* Manual Audit Progress */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-lg shadow-md p-6"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-lg font-semibold text-gray-900">Manual Audit</h3>
+                <button
+                  onClick={() => setSelectedTab('audit')}
+                  className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+                >
+                  Open checklist →
+                </button>
+              </div>
+              <p className="text-sm text-gray-600 mb-3">
+                Automated scanning catches roughly a third of real WCAG failures. This checklist covers what
+                only a human can verify — keyboard traps, screen reader behavior, reading order, and more.
+              </p>
+              {!auditLoading && auditItems.length > 0 && (
+                <div>
+                  <div className="w-full bg-gray-100 rounded-full h-2 mb-1">
+                    <div
+                      className="bg-indigo-600 h-2 rounded-full transition-all"
+                      style={{
+                        width: `${Math.round(
+                          (auditItems.filter(i => i.status !== 'not_started').length / auditItems.length) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {auditItems.filter(i => i.status !== 'not_started').length} of {auditItems.length} checks completed
+                    {auditItems.some(i => i.status === 'fail') && (
+                      <span className="text-red-600 font-medium">
+                        {' '}· {auditItems.filter(i => i.status === 'fail').length} failed
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </motion.div>
           </div>
         )}
@@ -490,6 +903,88 @@ export default function ResultsPage() {
                 </pre>
               </motion.div>
             ))}
+          </div>
+        )}
+
+        {/* Manual Audit Tab */}
+        {selectedTab === 'audit' && (
+          <div className="space-y-6">
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 text-sm text-indigo-900">
+              Work through each item using the real device/assistive tech named in the guidance — a keyboard
+              alone, a screen reader, a color-blindness simulator. Mark it Pass, Fail, or Not Applicable as you
+              go. Progress is saved automatically and feeds directly into the VPAT export above.
+            </div>
+
+            {auditLoading ? (
+              <div className="text-center py-12 text-gray-500">Loading checklist…</div>
+            ) : (
+              Object.entries(
+                auditItems.reduce<Record<string, ManualAuditItem[]>>((groups, item) => {
+                  (groups[item.category] ||= []).push(item)
+                  return groups
+                }, {})
+              ).map(([category, items]) => (
+                <div key={category} className="bg-white rounded-lg shadow-md overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                    <h3 className="font-semibold text-gray-900">
+                      {CATEGORY_LABELS[category] || category}
+                    </h3>
+                  </div>
+                  <div className="divide-y divide-gray-100">
+                    {items.map(item => (
+                      <div key={item.id} className="p-6">
+                        <div className="flex items-start justify-between gap-4 mb-2">
+                          <div>
+                            <h4 className="font-medium text-gray-900">{item.title}</h4>
+                            {item.wcagReference && (
+                              <span className="text-xs text-gray-500">{item.wcagReference}</span>
+                            )}
+                          </div>
+                          <div className="flex gap-1 flex-shrink-0">
+                            {(['not_started', 'pass', 'fail', 'not_applicable'] as const).map(status => {
+                              const labels: Record<string, string> = {
+                                not_started: 'Not started',
+                                pass: 'Pass',
+                                fail: 'Fail',
+                                not_applicable: 'N/A',
+                              }
+                              const active = item.status === status
+                              const activeColors: Record<string, string> = {
+                                not_started: 'bg-gray-600 text-white',
+                                pass: 'bg-green-600 text-white',
+                                fail: 'bg-red-600 text-white',
+                                not_applicable: 'bg-gray-400 text-white',
+                              }
+                              return (
+                                <button
+                                  key={status}
+                                  onClick={() => handleAuditUpdate(item.id, { status })}
+                                  className={`px-2.5 py-1 rounded text-xs font-medium border ${
+                                    active
+                                      ? activeColors[status]
+                                      : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                                  }`}
+                                >
+                                  {labels[status]}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-3">{item.guidance}</p>
+                        <textarea
+                          defaultValue={item.notes || ''}
+                          onBlur={e => handleAuditUpdate(item.id, { notes: e.target.value })}
+                          placeholder="Notes (optional) — what you checked, what you found…"
+                          rows={2}
+                          className="w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         )}
       </div>

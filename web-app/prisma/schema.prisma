@@ -14,11 +14,93 @@ model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String?
-  stripeCustomerId String? @unique
+  password  String?  // bcrypt hash; null for accounts without password auth
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  scans     Scan[]
+  memberships Membership[]
+}
+
+// Every account belongs to at least one Organization — a fresh signup gets
+// a personal one automatically (see lib/organizations.ts), so the org
+// model applies uniformly instead of needing a separate "solo user" code
+// path. Scans, billing, and API keys all hang off the org, not the user
+// directly, so a team can share scan history/quota and a user can belong
+// to more than one org (e.g. a consultant auditing several clients).
+model Organization {
+  id               String   @id @default(cuid())
+  name             String
+  stripeCustomerId String?  @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  memberships  Membership[]
+  scans        Scan[]
+  apiKeys      ApiKey[]
+  webhookEndpoints WebhookEndpoint[]
   subscription Subscription?
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           String       @default("member") // owner, admin, member
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+// Machine-to-machine credentials for the CI integration and any future
+// programmatic access. Only the tier's api_access flag (PRICING_TIERS in
+// lib/stripe.ts) gates issuance — the key itself carries no scope beyond
+// "act as this organization" for scanning endpoints. Only keyHash is
+// stored; the plaintext key is shown to the user exactly once, at creation.
+model ApiKey {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdByUserId String?      // audit trail only, not an access-control boundary
+  name            String
+  keyPrefix       String       // first chars of the key, shown for identification
+  keyHash         String       @unique
+  lastUsedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime     @default(now())
+
+  @@index([organizationId])
+}
+
+// Outbound notifications gated by the same api_access feature as ApiKey.
+// Only `secret` is stored (needed to sign future deliveries); it's shown
+// to the user once at creation, same as an API key's plaintext value.
+model WebhookEndpoint {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdByUserId String?      // audit trail only, not an access-control boundary
+  url             String
+  secret          String       // used to HMAC-sign delivered payloads
+  enabled         Boolean      @default(true)
+  lastDeliveryAt  DateTime?
+  lastDeliveryStatus Int?      // HTTP status of the most recent delivery attempt
+  createdAt       DateTime     @default(now())
+
+  @@index([organizationId])
+}
+
+// Sliding-window rate limiting for auth and scan endpoints.
+// Keyed by an arbitrary string (e.g. "register:<ip>", "scan:<userId>")
+// so a single table can back multiple limiters.
+model RateLimitEntry {
+  id        String   @id @default(cuid())
+  key       String
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
 }
 
 model Scan {
@@ -27,15 +109,42 @@ model Scan {
   timestamp       DateTime    @default(now())
   complianceScore Int
   pagesScanned    Int
-  userId          String?
-  user            User?       @relation(fields: [userId], references: [id])
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdByUserId String?     // audit trail only — who ran it, not an access-control boundary
   violations      Violation[]
   metadata        ScanMetadata?
+  manualAuditItems ManualAuditItem[]
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  @@index([userId])
+  @@index([organizationId])
   @@index([timestamp])
+}
+
+// Automated tools like axe-core only catch a fraction of real WCAG
+// failures — screen reader behavior, keyboard traps, reading order, and
+// color-alone cues can't be verified by DOM inspection. This table backs a
+// human sign-off checklist per scan, seeded from a fixed template
+// (lib/manual-audit-checklist.ts) and completed by a real person.
+model ManualAuditItem {
+  id              String    @id @default(cuid())
+  scanId          String
+  scan            Scan      @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  category        String    // keyboard-navigation, screen-reader, reading-order, color-and-contrast, zoom-and-reflow, forms
+  code            String    // stable key within the template, e.g. "kbd-no-traps"
+  title           String
+  guidance        String    @db.Text
+  wcagReference   String?
+  status          String    @default("not_started") // not_started, pass, fail, not_applicable
+  notes           String?   @db.Text
+  checkedByUserId String?
+  checkedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([scanId, code])
+  @@index([scanId])
 }
 
 model ScanMetadata {
@@ -56,8 +165,8 @@ model ScanMetadata {
 
 model Subscription {
   id              String    @id @default(cuid())
-  userId          String    @unique
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId  String    @unique
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   stripeSubscriptionId String @unique
   tier            String    // starter, professional, enterprise
   status          String    // active, canceled, past_due, incomplete
@@ -66,7 +175,7 @@ model Subscription {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  @@index([userId])
+  @@index([organizationId])
   @@index([status])
 }
 
