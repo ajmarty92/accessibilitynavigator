@@ -1,9 +1,28 @@
 import Stripe from 'stripe'
 import { logger } from './logger'
+import { prisma } from './prisma'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-06-20',
-})
+// Constructed lazily rather than at module scope: this file is imported
+// (transitively, via usage-tracking) by API routes that Next.js statically
+// analyzes at build time, before env vars are necessarily configured. A
+// module-scope `new Stripe(...)` throws in that phase whenever
+// STRIPE_SECRET_KEY isn't set and takes the whole build down with it.
+let stripeClient: Stripe | undefined
+function getStripe(): Stripe {
+  if (!stripeClient) {
+    stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+      apiVersion: '2025-11-17.clover',
+    })
+  }
+  return stripeClient
+}
+
+// As of the 2025 Stripe API versions, the subscription's billing period
+// lives on its item(s) rather than the subscription object itself.
+// Subscriptions created through this app always have exactly one item.
+export function getSubscriptionPeriodEnd(subscription: Stripe.Subscription): number {
+  return subscription.items.data[0]?.current_period_end ?? Math.floor(Date.now() / 1000)
+}
 
 export interface PricingTier {
   id: string
@@ -101,13 +120,13 @@ export async function createSubscription(
     : tier.stripeMonthlyPriceId
 
   try {
-    const subscription = await stripe.subscriptions.create({
+    const subscription = await getStripe().subscriptions.create({
       customer: customerId,
       items: [{
         price: priceId,
         quantity: 1,
       }],
-      payment_behavior: 'create_if_missing',
+      payment_behavior: 'default_incomplete',
       payment_settings: {
         payment_method_types: ['card'],
         save_default_payment_method: 'on_subscription',
@@ -136,11 +155,11 @@ export async function updateSubscription(
   }
 
   try {
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId)
+    const subscription = await getStripe().subscriptions.retrieve(subscriptionId)
     const currentTierId = subscription.metadata?.tier
 
     // If upgrading or downgrading, create a new subscription item
-    const updatedSubscription = await stripe.subscriptions.update(subscriptionId, {
+    const updatedSubscription = await getStripe().subscriptions.update(subscriptionId, {
       items: [{
         id: subscription.items.data[0].id,
         price: newTier.stripeMonthlyPriceId,
@@ -161,10 +180,10 @@ export async function updateSubscription(
 export async function cancelSubscription(subscriptionId: string, immediate = false) {
   try {
     if (immediate) {
-      const subscription = await stripe.subscriptions.cancel(subscriptionId)
+      const subscription = await getStripe().subscriptions.cancel(subscriptionId)
       return subscription
     } else {
-      const subscription = await stripe.subscriptions.update(subscriptionId, {
+      const subscription = await getStripe().subscriptions.update(subscriptionId, {
         cancel_at_period_end: true,
       })
       return subscription
@@ -177,7 +196,7 @@ export async function cancelSubscription(subscriptionId: string, immediate = fal
 
 export async function createCustomer(email: string, name?: string) {
   try {
-    const customer = await stripe.customers.create({
+    const customer = await getStripe().customers.create({
       email,
       name,
       metadata: {
@@ -194,7 +213,7 @@ export async function createCustomer(email: string, name?: string) {
 
 export async function getCustomerSubscription(customerId: string): Promise<SubscriptionInfo | null> {
   try {
-    const subscriptions = await stripe.subscriptions.list({
+    const subscriptions = await getStripe().subscriptions.list({
       customer: customerId,
       status: 'active',
       limit: 1,
@@ -219,7 +238,7 @@ export async function getCustomerSubscription(customerId: string): Promise<Subsc
       customerId: subscription.customer as string,
       tier: tierId,
       status: subscription.status as any,
-      currentPeriodEnd: subscription.current_period_end,
+      currentPeriodEnd: getSubscriptionPeriodEnd(subscription),
       cancelAtPeriodEnd: subscription.cancel_at_period_end,
       usage,
     }
@@ -229,37 +248,76 @@ export async function getCustomerSubscription(customerId: string): Promise<Subsc
   }
 }
 
+// Keeps the local Subscription table in sync with Stripe. This is the
+// source of truth for canUserScan()/usage-tracking — the subscriptions
+// API route also writes here for immediate UX, but this webhook is what
+// keeps it correct across renewals, dunning, and cancellations that don't
+// originate from our own API calls (e.g. changes made in the Stripe
+// dashboard, or a customer canceling via the billing portal).
+export async function upsertSubscriptionFromStripe(subscription: Stripe.Subscription) {
+  const customerId = subscription.customer as string
+  const user = await prisma.user.findUnique({ where: { stripeCustomerId: customerId } })
+
+  if (!user) {
+    logger.warn('Received Stripe subscription event for unknown customer:', customerId)
+    return
+  }
+
+  const tierId = subscription.metadata?.tier || 'starter'
+
+  await prisma.subscription.upsert({
+    where: { userId: user.id },
+    update: {
+      stripeSubscriptionId: subscription.id,
+      tier: tierId,
+      status: subscription.status,
+      currentPeriodEnd: getSubscriptionPeriodEnd(subscription),
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    },
+    create: {
+      userId: user.id,
+      stripeSubscriptionId: subscription.id,
+      tier: tierId,
+      status: subscription.status,
+      currentPeriodEnd: getSubscriptionPeriodEnd(subscription),
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    },
+  })
+}
+
 export async function handleStripeWebhook(event: Stripe.Event) {
   switch (event.type) {
-    case 'invoice.payment_succeeded':
+    case 'invoice.payment_succeeded': {
       const invoice = event.data.object as Stripe.Invoice
       logger.info('Payment succeeded for invoice:', invoice.id)
-      // Update subscription status in your database
       break
+    }
 
-    case 'invoice.payment_failed':
+    case 'invoice.payment_failed': {
       const failedInvoice = event.data.object as Stripe.Invoice
       logger.info('Payment failed for invoice:', failedInvoice.id)
-      // Notify customer of failed payment
       break
+    }
 
     case 'customer.subscription.created':
-      const createdSubscription = event.data.object as Stripe.Subscription
-      logger.info('Subscription created:', createdSubscription.id)
-      // Update user's subscription in your database
+    case 'customer.subscription.updated': {
+      const subscription = event.data.object as Stripe.Subscription
+      logger.info(`${event.type}:`, subscription.id)
+      await upsertSubscriptionFromStripe(subscription)
       break
+    }
 
-    case 'customer.subscription.updated':
-      const updatedSubscription = event.data.object as Stripe.Subscription
-      logger.info('Subscription updated:', updatedSubscription.id)
-      // Update user's subscription in your database
-      break
-
-    case 'customer.subscription.deleted':
+    case 'customer.subscription.deleted': {
       const deletedSubscription = event.data.object as Stripe.Subscription
       logger.info('Subscription deleted:', deletedSubscription.id)
-      // Update user's subscription in your database
+      await prisma.subscription
+        .update({
+          where: { stripeSubscriptionId: deletedSubscription.id },
+          data: { status: 'canceled' },
+        })
+        .catch(() => logger.warn('No local subscription found for', deletedSubscription.id))
       break
+    }
 
     default:
       logger.info(`Unhandled event type: ${event.type}`)

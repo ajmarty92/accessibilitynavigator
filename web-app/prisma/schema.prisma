@@ -14,11 +14,23 @@ model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String?
+  password  String?  // bcrypt hash; null for accounts without password auth
   stripeCustomerId String? @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   scans     Scan[]
   subscription Subscription?
+}
+
+// Sliding-window rate limiting for auth and scan endpoints.
+// Keyed by an arbitrary string (e.g. "register:<ip>", "scan:<userId>")
+// so a single table can back multiple limiters.
+model RateLimitEntry {
+  id        String   @id @default(cuid())
+  key       String
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
 }
 
 model Scan {

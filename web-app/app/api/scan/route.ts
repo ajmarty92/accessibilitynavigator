@@ -1,21 +1,59 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { scanWebsite, detectFramework, scanMultiplePages, ScanOptions } from '@/lib/scanner'
-import { analyzeViolationsWithAI, SiteContext } from '@/lib/ai-prioritizer'
-import { trackScanUsage } from '@/lib/paddle'
+import { analyzeViolationsWithAI, SiteContext, AIAnalysis } from '@/lib/ai-prioritizer'
+import { calculateComplianceScore } from '@/lib/compliance-score'
+import { canUserScan, trackScanUsage } from '@/lib/usage-tracking'
+import { checkRateLimit } from '@/lib/rate-limit'
 import { prisma } from '@/lib/prisma'
 import { validateUrl } from '@/lib/security'
+import { logger } from '@/lib/logger'
+
+// Hard ceiling on scans per user per hour, independent of subscription tier.
+// Protects against a compromised session or runaway client from spinning up
+// unbounded headless-Chrome instances.
+const SCAN_RATE_LIMIT = 10
+const SCAN_RATE_WINDOW_MS = 60 * 60 * 1000
+
+function derivePriority(impact: string, aiAnalysis?: AIAnalysis | null): string {
+  if (aiAnalysis?.complianceLevel) return aiAnalysis.complianceLevel.toLowerCase()
+  switch (impact) {
+    case 'critical':
+      return 'critical'
+    case 'serious':
+      return 'high'
+    case 'moderate':
+      return 'medium'
+    default:
+      return 'low'
+  }
+}
+
+function parseEffortHours(estimate?: string): number | null {
+  if (!estimate) return null
+  const match = estimate.match(/(\d+(\.\d+)?)/)
+  return match ? parseFloat(match[1]) : null
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const { 
-      url, 
-      options = {}, 
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: 'Sign in to run a scan' },
+        { status: 401 }
+      )
+    }
+    const userId = session.user.id
+
+    const {
+      url,
+      options = {},
       siteContext = {},
-      userId,
-      useAI = true 
+      useAI = true
     } = await request.json()
 
-    // Validate URL
     if (!url || typeof url !== 'string') {
       return NextResponse.json(
         { error: 'Valid URL is required' },
@@ -23,10 +61,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Format URL properly
     const formattedUrl = url.startsWith('http') ? url : `https://${url}`
 
-    // Security check: Validate URL against SSRF and other risks
     const validationResult = await validateUrl(formattedUrl)
     if (!validationResult.valid) {
       return NextResponse.json(
@@ -35,21 +71,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const urlObj = new URL(formattedUrl)
-    
-    // Track usage for subscription limits
-    if (userId) {
-      try {
-        await trackScanUsage(userId)
-      } catch (usageError) {
-        return NextResponse.json(
-          { error: usageError instanceof Error ? usageError.message : 'Usage limit exceeded' },
-          { status: 403 }
-        )
-      }
+    // Hard per-user rate limit, checked before the (more expensive) tier check.
+    const rateLimit = await checkRateLimit(`scan:${userId}`, SCAN_RATE_LIMIT, SCAN_RATE_WINDOW_MS)
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: `Too many scans. Please try again after ${rateLimit.resetAt.toLocaleTimeString()}.` },
+        { status: 429 }
+      )
     }
 
-    // Enhanced scan options
+    // Subscription-tier / trial quota check.
+    const usage = await canUserScan(userId)
+    if (!usage.canScan) {
+      return NextResponse.json(
+        { error: usage.reason || 'Scan limit reached for your plan', resetDate: usage.resetDate },
+        { status: 403 }
+      )
+    }
+
     const scanOptions: ScanOptions = {
       maxPages: options.maxPages || 1,
       crawlDepth: options.crawlDepth || 1,
@@ -58,24 +97,22 @@ export async function POST(request: NextRequest) {
       framework: options.framework || 'vanilla'
     }
 
-    let scanResult
-    
-    // Auto-detect framework if not specified
     if (!options.framework) {
       try {
         scanOptions.framework = await detectFramework(formattedUrl)
       } catch (error) {
-        console.error('Framework detection failed, using vanilla:', error)
+        logger.error('Framework detection failed, using vanilla:', error)
         scanOptions.framework = 'vanilla'
       }
     }
 
-    // Perform the scan
-    if (scanOptions.maxPages > 1) {
-      // Multi-page scan
+    let scanResult
+    let pagesScanned = 1
+
+    if (scanOptions.maxPages && scanOptions.maxPages > 1) {
       const results = await scanMultiplePages(formattedUrl, scanOptions)
-      
-      // Merge results from multiple pages
+      pagesScanned = results.length
+
       scanResult = {
         violations: results.flatMap(r => r.violations),
         passes: results.flatMap(r => r.passes),
@@ -87,83 +124,105 @@ export async function POST(request: NextRequest) {
           title: results[0]?.metadata?.title,
           viewport: results[0]?.metadata?.viewport || { width: 1280, height: 720 },
           userAgent: results[0]?.metadata?.userAgent,
-          pagesScanned: results.length,
-          framework: scanOptions.framework
         },
-        performanceMetrics: {
-          accessibilityScore: results.reduce((sum, r) => sum + (r.performanceMetrics?.accessibilityScore || 0), 0) / results.length,
-          performanceScore: results.reduce((sum, r) => sum + (r.performanceMetrics?.performanceScore || 0), 0) / results.length,
-          bestPracticesScore: results.reduce((sum, r) => sum + (r.performanceMetrics?.bestPracticesScore || 0), 0) / results.length
-        }
+        performanceMetrics: results[0]?.performanceMetrics
       }
     } else {
-      // Single page scan
       scanResult = await scanWebsite(formattedUrl, scanOptions)
-      scanResult.metadata = {
-        ...scanResult.metadata,
-        framework: scanOptions.framework
-      }
     }
 
-    // AI-powered analysis if requested
-    let aiAnalysis = null
+    let aiAnalysis: AIAnalysis[] | null = null
     if (useAI && scanResult.violations.length > 0) {
       try {
-        aiAnalysis = await analyzeViolationsWithAI(scanResult.violations, siteContext)
-        
-        // Attach AI analysis to violations
-        scanResult.violations = scanResult.violations.map((violation, index) => ({
+        aiAnalysis = await analyzeViolationsWithAI(scanResult.violations, siteContext as SiteContext)
+        scanResult.violations = scanResult.violations.map((violation: any, index: number) => ({
           ...violation,
-          aiAnalysis: aiAnalysis[index] || null
+          aiAnalysis: aiAnalysis?.[index] || null
         }))
       } catch (error) {
-        console.error('AI analysis failed:', error)
-        // Continue without AI analysis
+        logger.error('AI analysis failed:', error)
       }
     }
 
-    // Save to database if user is authenticated
-    let savedScan = null
-    if (userId && prisma) {
-      try {
-        savedScan = await prisma.scan.create({
-          data: {
-            url: formattedUrl,
-            userId,
-            violations: scanResult.violations.length,
-            passes: scanResult.passes.length,
-            score: scanResult.performanceMetrics?.accessibilityScore || 0,
-            metadata: scanResult.metadata,
-            results: scanResult,
-            aiAnalysis: aiAnalysis
+    const complianceScore = calculateComplianceScore(scanResult.violations)
+
+    const savedScan = await prisma.scan.create({
+      data: {
+        url: formattedUrl,
+        userId,
+        complianceScore,
+        pagesScanned,
+        metadata: {
+          create: {
+            frameworkDetection: { primary: scanOptions.framework },
+            performanceMetrics: scanResult.performanceMetrics ?? undefined,
+            scanOptions: scanOptions as any,
+            aiAnalysisEnabled: !!aiAnalysis,
+            codeFixesEnabled: false,
+            customRulesEnabled: !!scanOptions.customRules,
+            performanceAnalysis: !!scanOptions.includePerformance,
+            frameworkDetectionEnabled: true,
           }
-        })
-      } catch (error) {
-        console.error('Failed to save scan to database:', error)
-        // Continue without saving
-      }
-    }
+        },
+        violations: {
+          create: scanResult.violations.map((violation: any) => {
+            const analysis: AIAnalysis | null = violation.aiAnalysis || null
+            return {
+              violationId: violation.id,
+              description: violation.description || '',
+              help: violation.help || violation.description || '',
+              helpUrl: violation.helpUrl || null,
+              impact: violation.impact || 'moderate',
+              wcagReference: violation.wcagReference || null,
+              elementCount: violation.elementCount ?? violation.nodes?.length ?? 0,
+              priority: derivePriority(violation.impact, analysis),
+              priorityScore: analysis?.priorityScore ?? null,
+              legalRiskScore: analysis?.legalRiskScore ?? null,
+              userImpactScore: analysis?.userImpactScore ?? null,
+              businessRiskScore: analysis?.businessRiskScore ?? null,
+              technicalComplexity: analysis?.technicalComplexity ?? null,
+              effortHours: parseEffortHours(analysis?.estimatedEffort),
+              explanation: analysis?.businessJustification ?? null,
+              fixRecommendations: analysis?.fixRecommendations ?? [],
+              complianceDeadline: analysis?.deadlineRecommendation ?? null,
+              businessJustification: analysis?.businessJustification ?? null,
+              nodes: violation.nodes ?? [],
+              tags: violation.tags ?? [],
+              framework: scanOptions.framework,
+            }
+          })
+        }
+      },
+      include: { violations: true }
+    })
 
-    // Prepare response
-    const response = {
+    await trackScanUsage(userId, savedScan.id)
+
+    return NextResponse.json({
       success: true,
       scan: {
-        id: savedScan?.id,
-        ...scanResult,
+        id: savedScan.id,
+        url: formattedUrl,
+        timestamp: scanResult.timestamp,
+        complianceScore,
+        pagesScanned,
+        violations: scanResult.violations,
+        passes: scanResult.passes,
+        incomplete: scanResult.incomplete,
+        metadata: scanResult.metadata,
+        performanceMetrics: scanResult.performanceMetrics,
         hasAIPrioritization: !!aiAnalysis,
         framework: scanOptions.framework,
-        siteContext
+        siteContext,
+        scansRemaining: usage.scansRemaining !== undefined ? usage.scansRemaining - 1 : undefined,
       }
-    }
-
-    return NextResponse.json(response)
+    })
   } catch (error) {
-    console.error('Scan API error:', error)
-    
-    // Provide more specific error messages
+    logger.error('Scan API error:', error)
+
     let errorMessage = 'Internal server error'
     let statusCode = 500
-    
+
     if (error instanceof Error) {
       if (error.message.includes('timeout')) {
         errorMessage = 'Website scan timed out. Please try again or contact support.'
@@ -180,136 +239,11 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { 
+      {
         error: errorMessage,
         details: process.env.NODE_ENV === 'development' ? String(error) : undefined
       },
       { status: statusCode }
-    )
-  }
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url)
-    const scanId = searchParams.get('id')
-    const userId = searchParams.get('userId')
-
-    if (!scanId) {
-      return NextResponse.json(
-        { error: 'Scan ID is required' },
-        { status: 400 }
-      )
-    }
-
-    // Retrieve scan from database
-    if (prisma) {
-      const scan = await prisma.scan.findUnique({
-        where: { id: scanId },
-        include: {
-          user: userId ? { where: { id: userId } } : false
-        }
-      })
-
-      if (!scan) {
-        return NextResponse.json(
-          { error: 'Scan not found' },
-          { status: 404 }
-        )
-      }
-
-      // Check if user has access to this scan
-      if (userId && scan.userId !== userId) {
-        return NextResponse.json(
-          { error: 'Access denied' },
-          { status: 403 }
-        )
-      }
-
-      return NextResponse.json({
-        success: true,
-        scan: {
-          id: scan.id,
-          url: scan.url,
-          timestamp: scan.createdAt,
-          violations: scan.results?.violations || [],
-          passes: scan.results?.passes || [],
-          incomplete: scan.results?.incomplete || [],
-          score: scan.score,
-          metadata: scan.metadata,
-          aiAnalysis: scan.aiAnalysis
-        }
-      })
-    }
-
-    // Fallback if no database
-    return NextResponse.json(
-      { error: 'Database not available' },
-      { status: 503 }
-    )
-  } catch (error) {
-    console.error('Get scan error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 }
-    )
-  }
-}
-
-// Endpoint to get scan history for a user
-export async function PUT(request: NextRequest) {
-  try {
-    const { userId, limit = 10, offset = 0 } = await request.json()
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
-      )
-    }
-
-    if (prisma) {
-      const scans = await prisma.scan.findMany({
-        where: { userId },
-        orderBy: { createdAt: 'desc' },
-        take: parseInt(limit),
-        skip: parseInt(offset),
-        select: {
-          id: true,
-          url: true,
-          createdAt: true,
-          violations: true,
-          passes: true,
-          score: true,
-          metadata: true
-        }
-      })
-
-      const total = await prisma.scan.count({
-        where: { userId }
-      })
-
-      return NextResponse.json({
-        success: true,
-        scans,
-        pagination: {
-          total,
-          limit: parseInt(limit),
-          offset: parseInt(offset),
-          hasMore: offset + scans.length < total
-        }
-      })
-    }
-
-    return NextResponse.json(
-      { error: 'Database not available' },
-      { status: 503 }
-    )
-  } catch (error) {
-    console.error('Get scan history error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 }
     )
   }
 }

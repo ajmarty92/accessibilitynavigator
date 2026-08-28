@@ -1,14 +1,17 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { ExternalLink, TrendingUp, TrendingDown, Clock } from 'lucide-react'
+import { ExternalLink, TrendingUp, TrendingDown, Clock, Lock } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { useQuery } from '@tanstack/react-query'
+import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 export default function RecentScans() {
   const router = useRouter()
-  
+  const { status } = useSession()
+
   const { data: scans, isLoading } = useQuery({
     queryKey: ['recent-scans'],
     queryFn: async () => {
@@ -20,9 +23,28 @@ export default function RecentScans() {
         return []
       }
     },
+    enabled: status === 'authenticated',
     retry: false,
     initialData: [],
   })
+
+  if (status !== 'authenticated') {
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-bold text-gray-900">Recent Scans</h2>
+        </div>
+        <div className="card text-center py-12">
+          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Lock className="w-8 h-8 text-gray-400" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Sign in to see your scan history</h3>
+          <p className="text-gray-600 mb-4">Create a free account to save and revisit your reports.</p>
+          <Link href="/login" className="btn-primary inline-flex">Sign in</Link>
+        </div>
+      </div>
+    )
+  }
 
   const getScoreColor = (score: number) => {
     if (score >= 90) return 'text-success-600'

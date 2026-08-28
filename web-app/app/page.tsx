@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
+import { useSession, signOut } from 'next-auth/react'
+import Link from 'next/link'
 import { 
   Search, 
   Zap, 
@@ -28,6 +30,7 @@ import DashboardStats from '@/components/DashboardStats'
 import RecentScans from '@/components/RecentScans'
 
 export default function HomePage() {
+  const { data: session, status } = useSession()
   const [isScanning, setIsScanning] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [activeTestimonial, setActiveTestimonial] = useState(0)
@@ -111,13 +114,35 @@ export default function HomePage() {
               <button className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200">
                 Documentation
               </button>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="bg-primary-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-primary-700 transition-colors duration-200 shadow-lg"
-              >
-                Get Started
-              </motion.button>
+              {status === 'authenticated' ? (
+                <div className="flex items-center gap-4">
+                  <span className="text-sm text-secondary-600">{session.user?.email}</span>
+                  <button
+                    onClick={() => signOut({ callbackUrl: '/' })}
+                    className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-4">
+                  <Link
+                    href="/login"
+                    className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200"
+                  >
+                    Sign in
+                  </Link>
+                  <Link href="/register">
+                    <motion.span
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="bg-primary-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-primary-700 transition-colors duration-200 shadow-lg inline-block"
+                    >
+                      Get Started
+                    </motion.span>
+                  </Link>
+                </div>
+              )}
             </nav>
 
             {/* Mobile Menu Button */}
@@ -150,9 +175,26 @@ export default function HomePage() {
                 <button className="text-secondary-700 hover:text-primary-600 font-medium text-left">
                   Documentation
                 </button>
-                <button className="bg-primary-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-primary-700 transition-colors duration-200">
-                  Get Started
-                </button>
+                {status === 'authenticated' ? (
+                  <button
+                    onClick={() => signOut({ callbackUrl: '/' })}
+                    className="text-secondary-700 hover:text-primary-600 font-medium text-left"
+                  >
+                    Sign out ({session.user?.email})
+                  </button>
+                ) : (
+                  <>
+                    <Link href="/login" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
+                      Sign in
+                    </Link>
+                    <Link
+                      href="/register"
+                      className="bg-primary-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-primary-700 transition-colors duration-200 text-center"
+                    >
+                      Get Started
+                    </Link>
+                  </>
+                )}
               </div>
             </motion.div>
           )}
@@ -303,13 +345,15 @@ export default function HomePage() {
               
               {/* Floating Elements */}
               <motion.div
-                animate={{ float: true }}
+                animate={{ y: [0, -10, 0] }}
+                transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
                 className="absolute -top-4 -right-4 bg-primary-600 text-white px-4 py-2 rounded-lg font-semibold shadow-lg"
               >
                 AI Powered
               </motion.div>
               <motion.div
-                animate={{ float: true, transition: { delay: 0.2 } }}
+                animate={{ y: [0, -10, 0] }}
+                transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut', delay: 0.2 }}
                 className="absolute -bottom-4 -left-4 bg-accent-600 text-white px-4 py-2 rounded-lg font-semibold shadow-lg"
               >
                 Enterprise Ready

@@ -1,20 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
-// GET /api/scans - Get all scans (with optional userId filter)
+// GET /api/scans - Get the signed-in user's own scans
 export async function GET(request: NextRequest) {
   try {
-    // Check if database is configured
     if (!process.env.DATABASE_URL) {
       return NextResponse.json([])
     }
 
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json([])
+    }
+
     const searchParams = request.nextUrl.searchParams
-    const userId = searchParams.get('userId')
     const limit = parseInt(searchParams.get('limit') || '10')
 
     const scans = await prisma.scan.findMany({
-      where: userId ? { userId } : {},
+      where: { userId: session.user.id },
       include: {
         violations: {
           select: {
@@ -38,20 +43,26 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/scans - Create a new scan
+// POST /api/scans - Create a scan record directly (used for imports/manual entry,
+// not the primary scan flow which is POST /api/scan)
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
+    }
+
     const body = await request.json()
-    const { url, complianceScore, pagesScanned, violations, userId } = body
+    const { url, complianceScore, pagesScanned, violations } = body
 
     const scan = await prisma.scan.create({
       data: {
         url,
         complianceScore,
         pagesScanned,
-        userId: userId || null,
+        userId: session.user.id,
         violations: {
-          create: violations.map((v: any) => ({
+          create: (violations || []).map((v: any) => ({
             violationId: v.id,
             description: v.description,
             help: v.help,

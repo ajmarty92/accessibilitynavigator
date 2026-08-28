@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { getUserUsage, getUsageStats, isFeatureAvailable, recordUsageEvent } from '@/lib/usage-tracking'
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const userId = searchParams.get('userId')
-    const type = searchParams.get('type') // 'basic' | 'stats' | 'feature'
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'userId is required' },
-        { status: 400 }
-      )
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
     }
+    const userId = session.user.id
+
+    const { searchParams } = new URL(request.url)
+    const type = searchParams.get('type') // 'basic' | 'stats' | 'feature'
 
     switch (type) {
       case 'stats':
@@ -47,17 +47,22 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { userId, eventType, metadata } = body
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
+    }
 
-    if (!userId || !eventType) {
+    const body = await request.json()
+    const { eventType, metadata } = body
+
+    if (!eventType) {
       return NextResponse.json(
-        { error: 'userId and eventType are required' },
+        { error: 'eventType is required' },
         { status: 400 }
       )
     }
 
-    await recordUsageEvent(userId, eventType, metadata)
+    await recordUsageEvent(session.user.id, eventType, metadata)
 
     return NextResponse.json({ success: true })
 

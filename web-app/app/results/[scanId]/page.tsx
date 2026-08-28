@@ -3,7 +3,8 @@
 import { useParams, useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Copy, CheckCircle, AlertCircle, Code, Eye, Download, Filter, Brain } from 'lucide-react'
+import { Copy, CheckCircle, AlertCircle, Code, Eye, Download, FileText, Filter, Brain } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 interface Violation {
   id: string
@@ -179,6 +180,103 @@ export default function ResultsPage() {
     } catch (error) {
       console.error('Failed to copy code:', error)
     }
+  }
+
+  const handleExportCsv = () => {
+    if (!scanResult) return
+
+    const headers = ['Priority', 'Impact', 'WCAG Reference', 'Issue', 'Description', 'Elements Affected']
+    const escape = (value: string) => `"${(value || '').replace(/"/g, '""')}"`
+
+    const rows = scanResult.violations.map(v => [
+      v.priority || 'medium',
+      v.impact,
+      v.wcagReference || '',
+      v.help,
+      v.description,
+      String(v.elementCount ?? v.nodes?.length ?? ''),
+    ].map(escape).join(','))
+
+    const csv = [headers.map(escape).join(','), ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `accessibility-report-${scanId}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+    toast.success('CSV report downloaded')
+  }
+
+  const handleExportPdf = async () => {
+    if (!scanResult) return
+
+    const { jsPDF } = await import('jspdf')
+    const doc = new jsPDF()
+    const marginX = 14
+    const pageHeight = doc.internal.pageSize.getHeight()
+    const pageWidth = doc.internal.pageSize.getWidth()
+    let y = 20
+
+    const ensureSpace = (needed: number) => {
+      if (y + needed > pageHeight - 16) {
+        doc.addPage()
+        y = 20
+      }
+    }
+
+    doc.setFontSize(18)
+    doc.text('Accessibility Compliance Report', marginX, y)
+    y += 9
+
+    doc.setFontSize(10)
+    doc.setTextColor(90)
+    doc.text(scanResult.url, marginX, y)
+    y += 6
+    doc.text(`Generated ${new Date().toLocaleString()}`, marginX, y)
+    y += 10
+
+    doc.setTextColor(0)
+    doc.setFontSize(14)
+    doc.text(`Compliance Score: ${scanResult.complianceScore}/100`, marginX, y)
+    y += 7
+    doc.setFontSize(11)
+    doc.text(
+      `${scanResult.violations.length} violations across ${scanResult.pagesScanned} page(s)`,
+      marginX,
+      y
+    )
+    y += 12
+
+    doc.setFontSize(13)
+    doc.text('Violations', marginX, y)
+    y += 8
+
+    scanResult.violations.forEach((violation, index) => {
+      ensureSpace(24)
+      doc.setFontSize(11)
+      doc.setFont('helvetica', 'bold')
+      const title = doc.splitTextToSize(
+        `${index + 1}. [${(violation.priority || 'medium').toUpperCase()}] ${violation.help}`,
+        pageWidth - marginX * 2
+      )
+      doc.text(title, marginX, y)
+      y += title.length * 5.5
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      const meta = `Impact: ${violation.impact}${violation.wcagReference ? ` · WCAG: ${violation.wcagReference}` : ''}`
+      doc.text(meta, marginX, y)
+      y += 5
+
+      const description = doc.splitTextToSize(violation.description, pageWidth - marginX * 2)
+      ensureSpace(description.length * 5)
+      doc.text(description, marginX, y)
+      y += description.length * 5 + 4
+    })
+
+    doc.save(`accessibility-report-${scanId}.pdf`)
+    toast.success('PDF report downloaded')
   }
 
   const getFrameworkIcon = (framework: string) => {
@@ -403,9 +501,19 @@ export default function ResultsPage() {
                     View Code Fixes
                   </button>
                 )}
-                <button className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2">
+                <button
+                  onClick={handleExportPdf}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                >
                   <Download className="w-4 h-4" />
-                  Export Report
+                  Export PDF
+                </button>
+                <button
+                  onClick={handleExportCsv}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <FileText className="w-4 h-4" />
+                  Export CSV
                 </button>
               </div>
             </motion.div>

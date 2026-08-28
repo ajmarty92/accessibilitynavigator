@@ -1,5 +1,5 @@
 import { prisma } from './prisma'
-import { PRICING_TIERS } from './stripe'
+import { PRICING_TIERS, PricingTier } from './stripe'
 import { logger } from './logger'
 
 export interface UsageMetrics {
@@ -325,8 +325,8 @@ export async function recordUsageEvent(
 }
 
 export async function isFeatureAvailable(
-  userId: string, 
-  feature: keyof PRICING_TIERS[string]['features']
+  userId: string,
+  feature: keyof PricingTier['features']
 ): Promise<boolean> {
   try {
     const user = await prisma.user.findUnique({
@@ -350,7 +350,7 @@ export async function isFeatureAvailable(
       return false
     }
 
-    return tier.features[feature]
+    return !!tier.features[feature]
   } catch (error) {
     logger.error('Failed to check feature availability:', error)
     return false

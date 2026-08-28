@@ -15,9 +15,10 @@ export interface ScanResult {
     userAgent: string
   }
   performanceMetrics?: {
-    accessibilityScore?: number
-    performanceScore?: number
-    bestPracticesScore?: number
+    domContentLoaded?: number
+    loadComplete?: number
+    firstPaint?: number
+    firstContentfulPaint?: number
     coverage?: {
       css: any
       js: any
@@ -43,7 +44,7 @@ export async function scanWebsite(url: string, options: ScanOptions = {}): Promi
   } = options
 
   const browser = await puppeteer.launch({ 
-    headless: 'new',
+    headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   })
   
@@ -85,7 +86,7 @@ export async function scanWebsite(url: string, options: ScanOptions = {}): Promi
       .analyze()
     
     // Run custom accessibility checks
-    let customResults = { violations: [], passes: [] }
+    let customResults: { violations: any[]; passes: any[] } = { violations: [], passes: [] }
     if (customRules) {
       customResults = await runCustomAccessibilityChecks(page, framework)
     }
@@ -132,7 +133,7 @@ export async function scanWebsite(url: string, options: ScanOptions = {}): Promi
 }
 
 async function runCustomAccessibilityChecks(page: any, framework: string): Promise<{ violations: any[], passes: any[] }> {
-  const customChecks = await page.evaluate((framework) => {
+  const customChecks = await page.evaluate((framework: string) => {
     const results = {
       'react-aria-compliance': [] as any[],
       'enhanced-color-contrast': [] as any[],
@@ -143,7 +144,7 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
 
     // React-specific checks
     if (framework === 'react') {
-      const issues = []
+      const issues: any[] = []
       const reactElements = document.querySelectorAll('[data-reactroot], [class*="react"], [id*="react"]')
       
       reactElements.forEach((element, index) => {
@@ -162,7 +163,7 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
 
     // Enhanced color contrast check
     {
-      const issues = []
+      const issues: any[] = []
       const textElements = document.querySelectorAll('p, h1, h2, h3, h4, h5, h6, span, div, a, button')
       
       textElements.forEach((element, index) => {
@@ -173,7 +174,7 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
         // Check for small text with insufficient contrast
         if (fontSize < 16 && fontWeight !== 'bold' && fontWeight !== '700') {
           const color = styles.color
-          const backgroundColor = styles.backgroundColor || window.getComputedStyle(element.parentElement).backgroundColor
+          const backgroundColor = styles.backgroundColor || window.getComputedStyle(element.parentElement || document.documentElement).backgroundColor
           
           // Simple contrast check (would need proper color contrast library in production)
           if (color === 'rgb(128, 128, 128)' && backgroundColor === 'rgb(255, 255, 255)') {
@@ -192,7 +193,7 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
 
     // Screen reader navigation check
     {
-      const issues = []
+      const issues: any[] = []
       
       // Check for proper heading structure
       const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6')
@@ -227,7 +228,7 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
 
     // Form accessibility check
     {
-      const issues = []
+      const issues: any[] = []
       const forms = document.querySelectorAll('form')
       
       forms.forEach((form, formIndex) => {
@@ -286,7 +287,7 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
 
     // Focus management check
     {
-      const issues = []
+      const issues: any[] = []
       
       // Check for visible focus indicators
       const styleSheet = Array.from(document.styleSheets)
@@ -359,30 +360,22 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
 
 async function getPerformanceMetrics(page: any, url: string): Promise<any> {
   try {
-    // Get basic performance metrics
+    // Real Navigation Timing / Paint Timing values only. Accessibility and
+    // "best practices" scores are NOT computed here — a page-load metric
+    // has no bearing on WCAG compliance. The compliance score is derived
+    // from actual scan violations in lib/compliance-score.ts instead.
     const metrics = await page.evaluate(() => {
       const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming
-      
+
       return {
         domContentLoaded: navigation.domContentLoadedEventEnd - navigation.domContentLoadedEventStart,
         loadComplete: navigation.loadEventEnd - navigation.loadEventStart,
         firstPaint: performance.getEntriesByType('paint')[0]?.startTime || 0,
         firstContentfulPaint: performance.getEntriesByType('paint')[1]?.startTime || 0,
-        largestContentfulPaint: 0 // Would need PerformanceObserver for this
       }
     })
 
-    // Mock accessibility score calculation (would need actual Lighthouse integration)
-    const accessibilityScore = Math.max(0, Math.min(100, 95 - Math.random() * 20))
-    const performanceScore = Math.max(0, Math.min(100, 85 - Math.random() * 30))
-    const bestPracticesScore = Math.max(0, Math.min(100, 90 - Math.random() * 15))
-
-    return {
-      ...metrics,
-      accessibilityScore,
-      performanceScore,
-      bestPracticesScore
-    }
+    return metrics
   } catch (error) {
     console.error('Performance metrics collection failed:', error)
     return null
@@ -391,7 +384,7 @@ async function getPerformanceMetrics(page: any, url: string): Promise<any> {
 
 // Framework detection
 export async function detectFramework(url: string): Promise<'react' | 'vue' | 'angular' | 'vanilla'> {
-  const browser = await puppeteer.launch({ headless: 'new' })
+  const browser = await puppeteer.launch({ headless: true })
   
   try {
     const page = await browser.newPage()
@@ -405,13 +398,13 @@ export async function detectFramework(url: string): Promise<'react' | 'vue' | 'a
       }
       
       // Check for Vue
-      if (window.Vue || document.querySelector('[data-v-]') ||
+      if ((window as any).Vue || document.querySelector('[data-v-]') ||
           Array.from(document.querySelectorAll('*')).some(el => el.getAttribute('data-v-'))) {
         return 'vue'
       }
-      
+
       // Check for Angular
-      if (window.angular || document.querySelector('[ng-app], [ng-controller]') ||
+      if ((window as any).angular || document.querySelector('[ng-app], [ng-controller]') ||
           Array.from(document.querySelectorAll('*')).some(el => el.getAttribute('ng-'))) {
         return 'angular'
       }
@@ -429,7 +422,7 @@ export async function detectFramework(url: string): Promise<'react' | 'vue' | 'a
 export async function scanMultiplePages(baseUrl: string, options: ScanOptions = {}): Promise<ScanResult[]> {
   const { maxPages = 5, crawlDepth = 2 } = options
   
-  const browser = await puppeteer.launch({ headless: 'new' })
+  const browser = await puppeteer.launch({ headless: true })
   
   try {
     const page = await browser.newPage()

@@ -1,10 +1,14 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { TrendingUp, TrendingDown, AlertCircle, CheckCircle, Clock, Target } from 'lucide-react'
+import { TrendingUp, TrendingDown, AlertCircle, CheckCircle, Clock, Target, Lock } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { useSession } from 'next-auth/react'
+import Link from 'next/link'
 
 export default function DashboardStats() {
+  const { status } = useSession()
+
   const { data: stats, isLoading } = useQuery({
     queryKey: ['scans-stats'],
     queryFn: async () => {
@@ -28,6 +32,7 @@ export default function DashboardStats() {
         }
       }
     },
+    enabled: status === 'authenticated',
     retry: false,
     initialData: {
       avgCompliance: 0,
@@ -36,6 +41,19 @@ export default function DashboardStats() {
       scansCount: 0,
     },
   })
+
+  if (status !== 'authenticated') {
+    return (
+      <div className="card text-center py-12">
+        <div className="w-16 h-16 bg-secondary-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Lock className="w-8 h-8 text-secondary-400" />
+        </div>
+        <h3 className="text-lg font-semibold text-secondary-900 mb-2">Sign in to see your compliance overview</h3>
+        <p className="text-secondary-600 mb-4">Your scan history and scores are private to your account.</p>
+        <Link href="/login" className="btn-primary inline-flex">Sign in</Link>
+      </div>
+    )
+  }
 
   const statsConfig = [
     {
