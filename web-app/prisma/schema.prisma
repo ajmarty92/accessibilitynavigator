@@ -36,6 +36,7 @@ model Organization {
   memberships  Membership[]
   scans        Scan[]
   apiKeys      ApiKey[]
+  webhookEndpoints WebhookEndpoint[]
   subscription Subscription?
 }
 
@@ -68,6 +69,24 @@ model ApiKey {
   keyHash         String       @unique
   lastUsedAt      DateTime?
   revokedAt       DateTime?
+  createdAt       DateTime     @default(now())
+
+  @@index([organizationId])
+}
+
+// Outbound notifications gated by the same api_access feature as ApiKey.
+// Only `secret` is stored (needed to sign future deliveries); it's shown
+// to the user once at creation, same as an API key's plaintext value.
+model WebhookEndpoint {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdByUserId String?      // audit trail only, not an access-control boundary
+  url             String
+  secret          String       // used to HMAC-sign delivered payloads
+  enabled         Boolean      @default(true)
+  lastDeliveryAt  DateTime?
+  lastDeliveryStatus Int?      // HTTP status of the most recent delivery attempt
   createdAt       DateTime     @default(now())
 
   @@index([organizationId])

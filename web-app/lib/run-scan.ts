@@ -4,6 +4,7 @@ import { analyzeViolationsWithAI, SiteContext, AIAnalysis } from './ai-prioritiz
 import { calculateComplianceScore } from './compliance-score'
 import { canOrganizationScan, trackScanUsage } from './usage-tracking'
 import { checkRateLimit } from './rate-limit'
+import { triggerWebhooks } from './webhooks'
 import { prisma } from './prisma'
 import { validateUrl } from './security'
 import { logger } from './logger'
@@ -223,6 +224,16 @@ export async function runScan(params: RunScanParams): Promise<RunScanResult> {
   })
 
   await trackScanUsage(organizationId, savedScan.id)
+
+  triggerWebhooks(organizationId, 'scan.completed', {
+    scanId: savedScan.id,
+    url: formattedUrl,
+    complianceScore,
+    pagesScanned,
+    violationCount: scanResult.violations.length,
+    criticalCount: scanResult.violations.filter((v: any) => v.impact === 'critical').length,
+    reportUrl: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/results/${savedScan.id}`,
+  })
 
   return {
     savedScan,

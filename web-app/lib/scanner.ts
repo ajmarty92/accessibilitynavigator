@@ -139,7 +139,8 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
       'enhanced-color-contrast': [] as any[],
       'screen-reader-navigation': [] as any[],
       'form-accessibility': [] as any[],
-      'focus-management': [] as any[]
+      'focus-management': [] as any[],
+      'media-captions': [] as any[]
     };
 
     // React-specific checks
@@ -335,6 +336,79 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
       results['focus-management'] = issues;
     }
 
+    // Media captions & transcripts check. axe-core flags some missing
+    // captions but doesn't check description tracks or audio transcripts,
+    // and can't reach into third-party embeds at all.
+    {
+      const issues: any[] = []
+
+      const videos = document.querySelectorAll('video')
+      videos.forEach((video, index) => {
+        const tracks = Array.from(video.querySelectorAll('track'))
+        const hasCaptions = tracks.some(t => ['captions', 'subtitles'].includes(t.getAttribute('kind') || ''))
+        const hasDescriptions = tracks.some(t => t.getAttribute('kind') === 'descriptions')
+
+        if (!hasCaptions) {
+          issues.push({
+            id: `video-no-captions-${index}`,
+            description: 'Video element has no caption or subtitle track (<track kind="captions"> or kind="subtitles">)',
+            impact: 'serious',
+            element: video.outerHTML.substring(0, 150),
+            wcagReference: 'WCAG 1.2.2'
+          })
+        }
+
+        // Only worth flagging when the video has enough of a soundtrack to
+        // plausibly need audio description — an autoplaying muted/loop
+        // background video almost never does, and flagging every <video>
+        // on the page for this produces mostly noise.
+        if (!hasDescriptions && !video.hasAttribute('muted') && !video.hasAttribute('loop')) {
+          issues.push({
+            id: `video-no-audio-description-${index}`,
+            description: 'Video has no audio description track (<track kind="descriptions">) — verify visual-only information is also conveyed in the audio',
+            impact: 'moderate',
+            element: video.outerHTML.substring(0, 150),
+            wcagReference: 'WCAG 1.2.3'
+          })
+        }
+      })
+
+      const audios = document.querySelectorAll('audio')
+      audios.forEach((audio, index) => {
+        const nearbyTranscript = audio.closest('figure, div, section')?.querySelector(
+          'a[href*="transcript" i], [class*="transcript" i], [id*="transcript" i]'
+        )
+        if (!nearbyTranscript) {
+          issues.push({
+            id: `audio-no-transcript-${index}`,
+            description: 'Audio element has no transcript link or text detected nearby',
+            impact: 'moderate',
+            element: audio.outerHTML.substring(0, 150),
+            wcagReference: 'WCAG 1.2.1'
+          })
+        }
+      })
+
+      // Third-party embeds (YouTube, Vimeo, Wistia, etc.) can't be
+      // inspected from this page — captions live on the source platform.
+      // Flagged as informational (minor) so it surfaces for manual review
+      // without being scored as a confirmed violation.
+      const embeds = document.querySelectorAll(
+        'iframe[src*="youtube" i], iframe[src*="youtu.be" i], iframe[src*="vimeo" i], iframe[src*="wistia" i]'
+      )
+      embeds.forEach((embed, index) => {
+        issues.push({
+          id: `embedded-video-verify-${index}`,
+          description: 'Embedded video player detected — captions can\'t be verified from this page; confirm they are enabled on the source platform',
+          impact: 'minor',
+          element: embed.outerHTML.substring(0, 150),
+          wcagReference: 'WCAG 1.2.2'
+        })
+      })
+
+      results['media-captions'] = issues
+    }
+
     return results;
   }, framework);
 
@@ -343,7 +417,8 @@ async function runCustomAccessibilityChecks(page: any, framework: string): Promi
     ...customChecks['enhanced-color-contrast'],
     ...customChecks['screen-reader-navigation'],
     ...customChecks['form-accessibility'],
-    ...customChecks['focus-management']
+    ...customChecks['focus-management'],
+    ...customChecks['media-captions']
   ]
 
   const passes = [

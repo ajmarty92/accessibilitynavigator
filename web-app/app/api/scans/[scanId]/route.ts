@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { requireOrganizationContext } from '@/lib/organizations'
+import { resolveApiIdentity, checkApiAccessGate } from '@/lib/api-auth'
 
 // Reads the caller's session on every request — never statically
 // pre-rendered/cached, or every user would see the same response.
 export const dynamic = 'force-dynamic'
 
 // GET /api/scans/[scanId] - Get a specific scan with all violations.
-// Scoped to the signed-in owner of the scan.
+// Scoped to the caller's organization. Also serves as the public API's
+// scan-detail endpoint (session or API key).
 export async function GET(
   request: NextRequest,
   { params }: { params: { scanId: string } }
@@ -20,9 +21,13 @@ export async function GET(
       )
     }
 
-    const ctx = await requireOrganizationContext()
-    if (!ctx.ok) {
-      return NextResponse.json({ error: ctx.error }, { status: ctx.status })
+    const identity = await resolveApiIdentity(request)
+    if (!identity) {
+      return NextResponse.json({ error: 'Sign in, or provide a valid API key' }, { status: 401 })
+    }
+    const gateError = await checkApiAccessGate(identity)
+    if (gateError) {
+      return NextResponse.json({ error: gateError }, { status: 403 })
     }
 
     const scan = await prisma.scan.findUnique({
@@ -46,7 +51,7 @@ export async function GET(
       )
     }
 
-    if (scan.organizationId !== ctx.organizationId) {
+    if (scan.organizationId !== identity.organizationId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 

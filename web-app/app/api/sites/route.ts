@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { requireOrganizationContext } from '@/lib/organizations'
+import { resolveApiIdentity, checkApiAccessGate } from '@/lib/api-auth'
 import { logger } from '@/lib/logger'
 
 // Reads the caller's session on every request — never statically
@@ -25,16 +25,21 @@ export interface SiteSummary {
 // GET /api/sites — every distinct URL the signed-in user's organization has
 // scanned, with its compliance score history. Powers the trend dashboard: a
 // site scanned once shows a single point, a site scanned repeatedly shows
-// real movement over time instead of a one-off snapshot.
-export async function GET() {
+// real movement over time instead of a one-off snapshot. Also part of the
+// public API (session or API key).
+export async function GET(request: NextRequest) {
   try {
-    const ctx = await requireOrganizationContext()
-    if (!ctx.ok) {
-      return NextResponse.json({ error: ctx.error }, { status: ctx.status })
+    const identity = await resolveApiIdentity(request)
+    if (!identity) {
+      return NextResponse.json({ error: 'Sign in, or provide a valid API key' }, { status: 401 })
+    }
+    const gateError = await checkApiAccessGate(identity)
+    if (gateError) {
+      return NextResponse.json({ error: gateError }, { status: 403 })
     }
 
     const scans = await prisma.scan.findMany({
-      where: { organizationId: ctx.organizationId },
+      where: { organizationId: identity.organizationId },
       orderBy: { timestamp: 'asc' },
       select: { id: true, url: true, complianceScore: true, timestamp: true },
     })

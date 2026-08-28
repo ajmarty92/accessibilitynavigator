@@ -1,28 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireOrganizationContext } from '@/lib/organizations'
+import { resolveApiIdentity, checkApiAccessGate } from '@/lib/api-auth'
 
 // Reads the caller's session on every request — never statically
 // pre-rendered/cached, or every user would see the same response.
 export const dynamic = 'force-dynamic'
 
-// GET /api/scans - Get the signed-in user's organization's scans
+// GET /api/scans - the signed-in user's (or API key's) organization scans.
+// Doubles as the public API's scan-listing endpoint. Session callers (the
+// frontend) get an empty list on any auth failure rather than an error, to
+// degrade gracefully when signed out — an API key that's simply not
+// entitled to api_access gets a real 403 instead, since a real key was
+// presented and deserves a real answer.
 export async function GET(request: NextRequest) {
   try {
     if (!process.env.DATABASE_URL) {
       return NextResponse.json([])
     }
 
-    const ctx = await requireOrganizationContext()
-    if (!ctx.ok) {
+    const identity = await resolveApiIdentity(request)
+    if (!identity) {
       return NextResponse.json([])
+    }
+    if (identity.authMethod === 'api-key') {
+      const gateError = await checkApiAccessGate(identity)
+      if (gateError) {
+        return NextResponse.json({ error: gateError }, { status: 403 })
+      }
     }
 
     const searchParams = request.nextUrl.searchParams
     const limit = parseInt(searchParams.get('limit') || '10')
 
     const scans = await prisma.scan.findMany({
-      where: { organizationId: ctx.organizationId },
+      where: { organizationId: identity.organizationId },
       include: {
         violations: {
           select: {

@@ -129,6 +129,12 @@ export default function HomePage() {
                     API Keys
                   </Link>
                   <Link
+                    href="/settings/webhooks"
+                    className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200"
+                  >
+                    Webhooks
+                  </Link>
+                  <Link
                     href="/settings/organization"
                     className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200"
                   >
@@ -200,6 +206,9 @@ export default function HomePage() {
                     </Link>
                     <Link href="/settings/api-keys" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
                       API Keys
+                    </Link>
+                    <Link href="/settings/webhooks" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
+                      Webhooks
                     </Link>
                     <Link href="/settings/organization" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
                       Organization
