@@ -29,6 +29,20 @@ const PAYLOAD_EXAMPLE = `{
   }
 }`
 
+const DOCUMENT_PAYLOAD_EXAMPLE = `{
+  "event": "document_scan.completed",
+  "timestamp": "2026-08-28T16:00:00.000Z",
+  "data": {
+    "documentScanId": "cln...",
+    "fileName": "annual-report.pdf",
+    "complianceScore": 74,
+    "pageCount": 12,
+    "violationCount": 3,
+    "criticalCount": 1,
+    "reportUrl": "https://accessibility-navigator.com/documents/cln..."
+  }
+}`
+
 export default function WebhooksPage() {
   const { status } = useSession()
   const router = useRouter()
@@ -255,6 +269,12 @@ export default function WebhooksPage() {
               <h2 className="font-semibold text-secondary-900 mb-2">Event: scan.completed</h2>
               <p className="text-sm text-secondary-600 mb-3">Fired once, right after a scan finishes and saves.</p>
               <pre className="bg-gray-900 text-gray-100 text-xs p-4 rounded-lg overflow-x-auto">{PAYLOAD_EXAMPLE}</pre>
+            </div>
+
+            <div className="card">
+              <h2 className="font-semibold text-secondary-900 mb-2">Event: document_scan.completed</h2>
+              <p className="text-sm text-secondary-600 mb-3">Fired once, right after a PDF upload finishes scanning.</p>
+              <pre className="bg-gray-900 text-gray-100 text-xs p-4 rounded-lg overflow-x-auto">{DOCUMENT_PAYLOAD_EXAMPLE}</pre>
             </div>
           </>
         )}

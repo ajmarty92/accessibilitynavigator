@@ -37,6 +37,9 @@ model Organization {
   scans        Scan[]
   apiKeys      ApiKey[]
   webhookEndpoints WebhookEndpoint[]
+  accessibilityStatements AccessibilityStatement[]
+  scheduledMonitors ScheduledMonitor[]
+  documentScans    DocumentScan[]
   subscription Subscription?
 }
 
@@ -92,6 +95,77 @@ model WebhookEndpoint {
   @@index([organizationId])
 }
 
+// Recurring re-scans of a URL. A shared cron endpoint
+// (/api/cron/run-monitors) processes every row where enabled and
+// nextRunAt has passed, runs a normal scan through the same runScan()
+// pipeline as everything else (so it's subject to the same quota/rate
+// limits), diffs against the previous scan the same way the CI endpoint
+// does, and emails alertEmails only when something at or above failOn
+// severity is new — a site with known debt shouldn't generate a noisy
+// email every single day.
+model ScheduledMonitor {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdByUserId String?      // audit trail only, not an access-control boundary
+  url             String
+  frequency       String       // daily, weekly
+  failOn          String       @default("serious") // critical, serious, moderate, any
+  alertEmails     Json         // array of email strings
+  enabled         Boolean      @default(true)
+  lastRunAt       DateTime?
+  nextRunAt       DateTime
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([organizationId])
+  @@index([enabled, nextRunAt])
+}
+
+// An uploaded PDF's accessibility report. Kept separate from Scan/Violation
+// (website scans) rather than reusing those tables — a document has no URL,
+// no crawl/page-discovery concept, and a distinct check set (tagged PDF
+// structure, alt text on Figure tags, document title/language, security
+// permissions blocking assistive technology) that doesn't map onto
+// axe-core's DOM-violation shape. See lib/document-accessibility-checker.ts.
+model DocumentScan {
+  id               String              @id @default(cuid())
+  organizationId   String
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdByUserId  String?             // audit trail only, not an access-control boundary
+  fileName         String
+  fileSizeBytes    Int
+  pageCount        Int
+  pagesAnalyzed    Int
+  complianceScore  Int
+  isTagged         Boolean
+  documentTitle    String?
+  documentLanguage String?
+  violations       DocumentViolation[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([organizationId])
+  @@index([createdAt])
+}
+
+model DocumentViolation {
+  id             String       @id @default(cuid())
+  documentScanId String
+  documentScan   DocumentScan @relation(fields: [documentScanId], references: [id], onDelete: Cascade)
+  checkId        String       // stable code, e.g. "untagged-document" — see DOCUMENT_CHECK_DEFINITIONS
+  description    String       @db.Text
+  help           String       @db.Text
+  impact         String       // minor, moderate, serious, critical
+  wcagReference  String?
+  elementCount   Int          @default(0)
+  nodes          Json         // per-instance detail (e.g. affected page numbers)
+  createdAt      DateTime     @default(now())
+
+  @@index([documentScanId])
+  @@index([impact])
+}
+
 // Sliding-window rate limiting for auth and scan endpoints.
 // Keyed by an arbitrary string (e.g. "register:<ip>", "scan:<userId>")
 // so a single table can back multiple limiters.
@@ -115,11 +189,40 @@ model Scan {
   violations      Violation[]
   metadata        ScanMetadata?
   manualAuditItems ManualAuditItem[]
+  accessibilityStatements AccessibilityStatement[]
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
   @@index([organizationId])
   @@index([timestamp])
+}
+
+// A publishable accessibility statement — the public-facing page DOJ
+// guidance and plaintiffs' counsel specifically look for, distinct from
+// the VPAT (a detailed vendor conformance document for procurement).
+// Keyed by (organizationId, siteUrl) rather than a single scan, so
+// re-running this generator against a newer scan of the same site updates
+// the statement's content and refreshes `scan` without changing the
+// public slug — a published statement's URL needs to stay stable even as
+// the underlying scan data improves over time.
+model AccessibilityStatement {
+  id               String       @id @default(cuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scanId           String       // most recent scan this statement was generated/refreshed from
+  scan             Scan         @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  siteUrl          String
+  slug             String       @unique
+  organizationName String
+  contactEmail     String?
+  contactPhone     String?
+  customNotes      String?      @db.Text
+  published        Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@unique([organizationId, siteUrl])
+  @@index([organizationId])
 }
 
 // Automated tools like axe-core only catch a fraction of real WCAG

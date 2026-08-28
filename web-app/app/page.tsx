@@ -123,6 +123,12 @@ export default function HomePage() {
                     Trends
                   </Link>
                   <Link
+                    href="/documents"
+                    className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200"
+                  >
+                    Documents
+                  </Link>
+                  <Link
                     href="/settings/api-keys"
                     className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200"
                   >
@@ -133,6 +139,12 @@ export default function HomePage() {
                     className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200"
                   >
                     Webhooks
+                  </Link>
+                  <Link
+                    href="/settings/monitors"
+                    className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200"
+                  >
+                    Monitors
                   </Link>
                   <Link
                     href="/settings/organization"
@@ -204,11 +216,17 @@ export default function HomePage() {
                     <Link href="/sites" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
                       Trends
                     </Link>
+                    <Link href="/documents" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
+                      Documents
+                    </Link>
                     <Link href="/settings/api-keys" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
                       API Keys
                     </Link>
                     <Link href="/settings/webhooks" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
                       Webhooks
+                    </Link>
+                    <Link href="/settings/monitors" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
+                      Monitors
                     </Link>
                     <Link href="/settings/organization" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
                       Organization
