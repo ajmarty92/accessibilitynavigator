@@ -39,6 +39,7 @@ model Organization {
   webhookEndpoints WebhookEndpoint[]
   accessibilityStatements AccessibilityStatement[]
   scheduledMonitors ScheduledMonitor[]
+  documentScans    DocumentScan[]
   subscription Subscription?
 }
 
@@ -119,6 +120,50 @@ model ScheduledMonitor {
 
   @@index([organizationId])
   @@index([enabled, nextRunAt])
+}
+
+// An uploaded PDF's accessibility report. Kept separate from Scan/Violation
+// (website scans) rather than reusing those tables — a document has no URL,
+// no crawl/page-discovery concept, and a distinct check set (tagged PDF
+// structure, alt text on Figure tags, document title/language, security
+// permissions blocking assistive technology) that doesn't map onto
+// axe-core's DOM-violation shape. See lib/document-accessibility-checker.ts.
+model DocumentScan {
+  id               String              @id @default(cuid())
+  organizationId   String
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdByUserId  String?             // audit trail only, not an access-control boundary
+  fileName         String
+  fileSizeBytes    Int
+  pageCount        Int
+  pagesAnalyzed    Int
+  complianceScore  Int
+  isTagged         Boolean
+  documentTitle    String?
+  documentLanguage String?
+  violations       DocumentViolation[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([organizationId])
+  @@index([createdAt])
+}
+
+model DocumentViolation {
+  id             String       @id @default(cuid())
+  documentScanId String
+  documentScan   DocumentScan @relation(fields: [documentScanId], references: [id], onDelete: Cascade)
+  checkId        String       // stable code, e.g. "untagged-document" — see DOCUMENT_CHECK_DEFINITIONS
+  description    String       @db.Text
+  help           String       @db.Text
+  impact         String       // minor, moderate, serious, critical
+  wcagReference  String?
+  elementCount   Int          @default(0)
+  nodes          Json         // per-instance detail (e.g. affected page numbers)
+  createdAt      DateTime     @default(now())
+
+  @@index([documentScanId])
+  @@index([impact])
 }
 
 // Sliding-window rate limiting for auth and scan endpoints.
