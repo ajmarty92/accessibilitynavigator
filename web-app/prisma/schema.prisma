@@ -37,6 +37,7 @@ model Organization {
   scans        Scan[]
   apiKeys      ApiKey[]
   webhookEndpoints WebhookEndpoint[]
+  accessibilityStatements AccessibilityStatement[]
   subscription Subscription?
 }
 
@@ -115,11 +116,40 @@ model Scan {
   violations      Violation[]
   metadata        ScanMetadata?
   manualAuditItems ManualAuditItem[]
+  accessibilityStatements AccessibilityStatement[]
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
   @@index([organizationId])
   @@index([timestamp])
+}
+
+// A publishable accessibility statement — the public-facing page DOJ
+// guidance and plaintiffs' counsel specifically look for, distinct from
+// the VPAT (a detailed vendor conformance document for procurement).
+// Keyed by (organizationId, siteUrl) rather than a single scan, so
+// re-running this generator against a newer scan of the same site updates
+// the statement's content and refreshes `scan` without changing the
+// public slug — a published statement's URL needs to stay stable even as
+// the underlying scan data improves over time.
+model AccessibilityStatement {
+  id               String       @id @default(cuid())
+  organizationId   String
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scanId           String       // most recent scan this statement was generated/refreshed from
+  scan             Scan         @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  siteUrl          String
+  slug             String       @unique
+  organizationName String
+  contactEmail     String?
+  contactPhone     String?
+  customNotes      String?      @db.Text
+  published        Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@unique([organizationId, siteUrl])
+  @@index([organizationId])
 }
 
 // Automated tools like axe-core only catch a fraction of real WCAG

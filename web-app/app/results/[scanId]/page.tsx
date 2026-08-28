@@ -66,6 +66,33 @@ interface ManualAuditItem {
   notes?: string | null
 }
 
+interface StatementConfig {
+  id: string
+  slug: string
+  organizationName: string
+  contactEmail?: string | null
+  contactPhone?: string | null
+  customNotes?: string | null
+  published: boolean
+  updatedAt: string
+}
+
+interface StatementContent {
+  organizationName: string
+  siteUrl: string
+  conformanceStatus: string
+  conformanceSummary: string
+  knownLimitations: { description: string; wcagReference: string; impact: string }[]
+  additionalLimitationCount: number
+  methodology: string
+  technicalSpecifications: string[]
+  manualAuditCompletionPct: number | null
+  assessmentDate: string
+  contactEmail?: string | null
+  contactPhone?: string | null
+  customNotes?: string | null
+}
+
 const CATEGORY_LABELS: Record<string, string> = {
   'keyboard-navigation': 'Keyboard Navigation',
   'screen-reader': 'Screen Reader',
@@ -109,12 +136,22 @@ export default function ResultsPage() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedViolation, setSelectedViolation] = useState<Violation | null>(null)
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'violations' | 'fixes' | 'audit'>('overview')
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'violations' | 'fixes' | 'audit' | 'statement'>('overview')
   const [filterPriority, setFilterPriority] = useState<string>('all')
   const [sortBy, setSortBy] = useState<'priority' | 'impact' | 'effort'>('priority')
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const [auditItems, setAuditItems] = useState<ManualAuditItem[]>([])
   const [auditLoading, setAuditLoading] = useState(true)
+  const [statementConfig, setStatementConfig] = useState<StatementConfig | null>(null)
+  const [statementContent, setStatementContent] = useState<StatementContent | null>(null)
+  const [statementLoading, setStatementLoading] = useState(true)
+  const [statementSaving, setStatementSaving] = useState(false)
+  const [statementForm, setStatementForm] = useState({
+    organizationName: '',
+    contactEmail: '',
+    contactPhone: '',
+    customNotes: '',
+  })
 
   useEffect(() => {
     const fetchScanResult = async () => {
@@ -160,6 +197,86 @@ export default function ResultsPage() {
 
     fetchAuditItems()
   }, [scanId])
+
+  useEffect(() => {
+    const fetchStatement = async () => {
+      try {
+        const response = await fetch(`/api/scans/${scanId}/statement`)
+        if (response.ok) {
+          const data = await response.json()
+          setStatementConfig(data.statement)
+          setStatementContent(data.content)
+          setStatementForm({
+            organizationName: data.statement?.organizationName || '',
+            contactEmail: data.statement?.contactEmail || '',
+            contactPhone: data.statement?.contactPhone || '',
+            customNotes: data.statement?.customNotes || '',
+          })
+        }
+      } catch (error) {
+        console.error('Error fetching accessibility statement:', error)
+      } finally {
+        setStatementLoading(false)
+      }
+    }
+
+    fetchStatement()
+  }, [scanId])
+
+  const handleSaveStatement = async (overrides: Partial<typeof statementForm & { published: boolean }> = {}) => {
+    setStatementSaving(true)
+    try {
+      const response = await fetch(`/api/scans/${scanId}/statement`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...statementForm, ...overrides }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        toast.error(data.error || 'Failed to save statement')
+        return
+      }
+      setStatementConfig(data.statement)
+      toast.success(data.statement.published ? 'Statement published' : 'Statement saved')
+
+      // Refresh the preview content now that config (org name, contact info) changed.
+      const refreshed = await fetch(`/api/scans/${scanId}/statement`)
+      if (refreshed.ok) {
+        const refreshedData = await refreshed.json()
+        setStatementContent(refreshedData.content)
+      }
+    } catch (error) {
+      console.error('Failed to save statement:', error)
+      toast.error('Failed to save statement')
+    } finally {
+      setStatementSaving(false)
+    }
+  }
+
+  const handleCopyStatementLink = async () => {
+    if (!statementConfig) return
+    const url = `${window.location.origin}/statement/${statementConfig.slug}`
+    await navigator.clipboard.writeText(url)
+    toast.success('Public link copied')
+  }
+
+  const handleExportStatementHtml = async () => {
+    if (!statementContent) return
+    const { renderStatementHtml } = await import('@/lib/accessibility-statement-render')
+    const html = renderStatementHtml({
+      ...statementContent,
+      conformanceStatus: statementContent.conformanceStatus as 'Partially conformant' | 'Not conformant',
+      assessmentDate: new Date(statementContent.assessmentDate),
+    })
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `accessibility-statement-${scanId}.html`
+    link.click()
+    URL.revokeObjectURL(url)
+    toast.success('HTML statement downloaded — paste it into your own site')
+  }
 
   const handleAuditUpdate = async (itemId: string, updates: { status?: string; notes?: string }) => {
     const previous = auditItems
@@ -626,6 +743,16 @@ export default function ResultsPage() {
             >
               Manual Audit {auditItems.length > 0 && `(${auditItems.filter(i => i.status !== 'not_started').length}/${auditItems.length})`}
             </button>
+            <button
+              onClick={() => setSelectedTab('statement')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                selectedTab === 'statement'
+                  ? 'border-indigo-500 text-indigo-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Accessibility Statement
+            </button>
           </nav>
         </div>
       </div>
@@ -984,6 +1111,159 @@ export default function ResultsPage() {
                   </div>
                 </div>
               ))
+            )}
+          </div>
+        )}
+
+        {/* Accessibility Statement Tab */}
+        {selectedTab === 'statement' && (
+          <div className="space-y-6">
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 text-sm text-indigo-900">
+              A public accessibility statement is one of the specific things DOJ guidance and plaintiffs&apos; counsel
+              look for. Fill this in and publish it, then link to it from your site&apos;s footer — or export the HTML
+              and host it yourself.
+            </div>
+
+            {statementLoading ? (
+              <div className="text-center py-12 text-gray-500">Loading…</div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Editor */}
+                <div className="bg-white rounded-lg shadow-md p-6 space-y-4">
+                  <h3 className="font-semibold text-gray-900">Details</h3>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Organization name</label>
+                    <input
+                      type="text"
+                      value={statementForm.organizationName}
+                      onChange={e => setStatementForm({ ...statementForm, organizationName: e.target.value })}
+                      placeholder="Acme Schools"
+                      className="w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Contact email</label>
+                    <input
+                      type="email"
+                      value={statementForm.contactEmail}
+                      onChange={e => setStatementForm({ ...statementForm, contactEmail: e.target.value })}
+                      placeholder="accessibility@example.com"
+                      className="w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Contact phone (optional)</label>
+                    <input
+                      type="text"
+                      value={statementForm.contactPhone}
+                      onChange={e => setStatementForm({ ...statementForm, contactPhone: e.target.value })}
+                      className="w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Additional information (optional)</label>
+                    <textarea
+                      value={statementForm.customNotes}
+                      onChange={e => setStatementForm({ ...statementForm, customNotes: e.target.value })}
+                      rows={3}
+                      placeholder="e.g. remediation timeline, third-party content not covered by this assessment…"
+                      className="w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap gap-3 pt-2">
+                    <button
+                      onClick={() => handleSaveStatement()}
+                      disabled={statementSaving || !statementForm.organizationName.trim()}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium"
+                    >
+                      Save
+                    </button>
+                    {statementConfig?.published ? (
+                      <button
+                        onClick={() => handleSaveStatement({ published: false })}
+                        disabled={statementSaving}
+                        className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 text-sm font-medium"
+                      >
+                        Unpublish
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleSaveStatement({ published: true })}
+                        disabled={statementSaving || !statementForm.organizationName.trim()}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium"
+                      >
+                        Publish
+                      </button>
+                    )}
+                  </div>
+
+                  {statementConfig?.published && (
+                    <div className="pt-2 border-t border-gray-100">
+                      <p className="text-xs text-gray-500 mb-1">Public link</p>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1.5 truncate">
+                          {typeof window !== 'undefined' ? window.location.origin : ''}/statement/{statementConfig.slug}
+                        </code>
+                        <button
+                          onClick={handleCopyStatementLink}
+                          className="p-1.5 text-gray-500 hover:text-indigo-600"
+                          aria-label="Copy public link"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleExportStatementHtml}
+                    className="text-sm text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-1"
+                  >
+                    <Download className="w-4 h-4" /> Export as standalone HTML
+                  </button>
+                </div>
+
+                {/* Preview */}
+                <div className="bg-white rounded-lg shadow-md p-6">
+                  <h3 className="font-semibold text-gray-900 mb-4">Preview</h3>
+                  {statementContent && (
+                    <div className="text-sm">
+                      <span
+                        className={`inline-block font-semibold px-2.5 py-1 rounded-md mb-3 ${
+                          statementContent.conformanceStatus === 'Not conformant'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {statementContent.conformanceStatus}
+                      </span>
+                      <p className="text-gray-700 mb-4">{statementContent.conformanceSummary}</p>
+
+                      <p className="font-medium text-gray-900 mb-2">Known limitations</p>
+                      {statementContent.knownLimitations.length === 0 ? (
+                        <p className="text-gray-600 mb-4">No outstanding issues identified.</p>
+                      ) : (
+                        <ul className="list-disc pl-5 space-y-1 mb-4 text-gray-700">
+                          {statementContent.knownLimitations.slice(0, 5).map((limitation, index) => (
+                            <li key={index}>
+                              {limitation.description}{' '}
+                              <span className="text-gray-500">({limitation.wcagReference})</span>
+                            </li>
+                          ))}
+                          {statementContent.knownLimitations.length > 5 && (
+                            <li className="text-gray-500">
+                              +{statementContent.knownLimitations.length - 5} more in the full statement
+                            </li>
+                          )}
+                        </ul>
+                      )}
+
+                      <p className="text-gray-500 text-xs">{statementContent.methodology}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         )}
