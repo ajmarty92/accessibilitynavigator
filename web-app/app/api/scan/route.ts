@@ -108,10 +108,12 @@ export async function POST(request: NextRequest) {
 
     let scanResult
     let pagesScanned = 1
+    let discoveryMethod: 'sitemap' | 'crawl' | null = null
 
     if (scanOptions.maxPages && scanOptions.maxPages > 1) {
-      const results = await scanMultiplePages(formattedUrl, scanOptions)
+      const { results, discoveryMethod: method } = await scanMultiplePages(formattedUrl, scanOptions)
       pagesScanned = results.length
+      discoveryMethod = method
 
       scanResult = {
         violations: results.flatMap(r => r.violations),
@@ -156,7 +158,7 @@ export async function POST(request: NextRequest) {
           create: {
             frameworkDetection: { primary: scanOptions.framework },
             performanceMetrics: scanResult.performanceMetrics ?? undefined,
-            scanOptions: scanOptions as any,
+            scanOptions: { ...scanOptions, discoveryMethod } as any,
             aiAnalysisEnabled: !!aiAnalysis,
             codeFixesEnabled: false,
             customRulesEnabled: !!scanOptions.customRules,
@@ -206,6 +208,7 @@ export async function POST(request: NextRequest) {
         timestamp: scanResult.timestamp,
         complianceScore,
         pagesScanned,
+        discoveryMethod,
         violations: scanResult.violations,
         passes: scanResult.passes,
         incomplete: scanResult.incomplete,

@@ -43,11 +43,37 @@ model Scan {
   user            User?       @relation(fields: [userId], references: [id])
   violations      Violation[]
   metadata        ScanMetadata?
+  manualAuditItems ManualAuditItem[]
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
   @@index([userId])
   @@index([timestamp])
+}
+
+// Automated tools like axe-core only catch a fraction of real WCAG
+// failures — screen reader behavior, keyboard traps, reading order, and
+// color-alone cues can't be verified by DOM inspection. This table backs a
+// human sign-off checklist per scan, seeded from a fixed template
+// (lib/manual-audit-checklist.ts) and completed by a real person.
+model ManualAuditItem {
+  id              String    @id @default(cuid())
+  scanId          String
+  scan            Scan      @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  category        String    // keyboard-navigation, screen-reader, reading-order, color-and-contrast, zoom-and-reflow, forms
+  code            String    // stable key within the template, e.g. "kbd-no-traps"
+  title           String
+  guidance        String    @db.Text
+  wcagReference   String?
+  status          String    @default("not_started") // not_started, pass, fail, not_applicable
+  notes           String?   @db.Text
+  checkedByUserId String?
+  checkedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([scanId, code])
+  @@index([scanId])
 }
 
 model ScanMetadata {

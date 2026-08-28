@@ -418,42 +418,212 @@ export async function detectFramework(url: string): Promise<'react' | 'vue' | 'a
   }
 }
 
-// Multi-page scanning for comprehensive analysis
-export async function scanMultiplePages(baseUrl: string, options: ScanOptions = {}): Promise<ScanResult[]> {
-  const { maxPages = 5, crawlDepth = 2 } = options
-  
-  const browser = await puppeteer.launch({ headless: true })
-  
+// --- Page discovery for multi-page scans -----------------------------------
+//
+// Prefers sitemap.xml (fast, authoritative, and what a real audit tool
+// should check first) and falls back to a breadth-first crawl of same-origin
+// links, honoring crawlDepth (previously accepted as an option but never
+// actually used — the old implementation only ever looked at links found on
+// the first page) and robots.txt Disallow rules.
+
+function normalizeUrl(raw: string): string | null {
   try {
-    const page = await browser.newPage()
-    await page.goto(baseUrl, { waitUntil: 'networkidle2' })
-    
-    // Discover links to scan
-    const links = await page.evaluate((maxPages) => {
-      const linkElements = Array.from(document.querySelectorAll('a[href]'))
-      return linkElements
-        .map(link => (link as HTMLAnchorElement).href)
-        .filter(href => href.startsWith(window.location.origin))
-        .slice(0, maxPages - 1) // -1 because we'll include the base URL
-    }, maxPages)
-    
-    await browser.close()
-    
-    // Scan each discovered page
-    const urls = [baseUrl, ...links].slice(0, maxPages)
-    const results: ScanResult[] = []
-    
-    for (const url of urls) {
-      try {
-        const result = await scanWebsite(url, options)
-        results.push(result)
-      } catch (error) {
-        console.error(`Failed to scan ${url}:`, error)
+    const u = new URL(raw)
+    u.hash = ''
+    u.search = ''
+    if (u.pathname.length > 1 && u.pathname.endsWith('/')) {
+      u.pathname = u.pathname.slice(0, -1)
+    }
+    return u.toString()
+  } catch {
+    return null
+  }
+}
+
+async function fetchRobotsDisallowRules(origin: string): Promise<string[]> {
+  try {
+    const response = await fetch(`${origin}/robots.txt`, { signal: AbortSignal.timeout(5000) })
+    if (!response.ok) return []
+
+    const text = await response.text()
+    const disallowed: string[] = []
+    let inWildcardBlock = false
+
+    for (const rawLine of text.split('\n')) {
+      const line = rawLine.trim()
+      if (!line || line.startsWith('#')) continue
+
+      const [directive, ...rest] = line.split(':')
+      const value = rest.join(':').trim()
+      const key = directive.trim().toLowerCase()
+
+      if (key === 'user-agent') {
+        inWildcardBlock = value === '*'
+      } else if (key === 'disallow' && inWildcardBlock && value) {
+        disallowed.push(value)
       }
     }
-    
-    return results
+
+    return disallowed
+  } catch {
+    // robots.txt missing or unreachable — treat as no restrictions
+    return []
+  }
+}
+
+function isDisallowed(url: string, disallowRules: string[]): boolean {
+  if (disallowRules.length === 0) return false
+  try {
+    const path = new URL(url).pathname
+    return disallowRules.some(rule => path.startsWith(rule))
+  } catch {
+    return false
+  }
+}
+
+// Pulls page URLs out of a sitemap.xml (or a sitemap index, one level deep).
+// Uses a plain regex over <loc> tags rather than pulling in an XML parser
+// dependency for what is a very constrained, well-known document shape.
+async function fetchSitemapUrls(origin: string, maxUrls: number): Promise<string[]> {
+  const extractLocs = (xml: string): string[] =>
+    Array.from(xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)).map(m => m[1])
+
+  try {
+    const response = await fetch(`${origin}/sitemap.xml`, { signal: AbortSignal.timeout(8000) })
+    if (!response.ok) return []
+
+    const xml = await response.text()
+    let locs = extractLocs(xml)
+
+    // A sitemap index references child sitemaps instead of pages directly.
+    const childSitemaps = locs.filter(loc => loc.endsWith('.xml')).slice(0, 3)
+    if (childSitemaps.length > 0) {
+      const childUrls = await Promise.all(
+        childSitemaps.map(async childUrl => {
+          try {
+            const childResponse = await fetch(childUrl, { signal: AbortSignal.timeout(8000) })
+            if (!childResponse.ok) return []
+            return extractLocs(await childResponse.text())
+          } catch {
+            return []
+          }
+        })
+      )
+      locs = childUrls.flat()
+    }
+
+    return locs.slice(0, maxUrls * 2) // over-fetch a bit; caller filters/dedupes
+  } catch {
+    return []
+  }
+}
+
+async function bfsCrawl(
+  baseUrl: string,
+  maxPages: number,
+  crawlDepth: number,
+  disallowRules: string[]
+): Promise<string[]> {
+  const origin = new URL(baseUrl).origin
+  const start = normalizeUrl(baseUrl)
+  if (!start) return [baseUrl]
+
+  const visited = new Set<string>()
+  const discovered: string[] = []
+  const queue: { url: string; depth: number }[] = [{ url: start, depth: 0 }]
+
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  })
+
+  try {
+    const page = await browser.newPage()
+
+    while (queue.length > 0 && discovered.length < maxPages) {
+      const next = queue.shift()!
+      if (visited.has(next.url) || isDisallowed(next.url, disallowRules)) continue
+      visited.add(next.url)
+      discovered.push(next.url)
+
+      if (next.depth >= crawlDepth || discovered.length >= maxPages) continue
+
+      try {
+        await page.goto(next.url, { waitUntil: 'networkidle2', timeout: 20000 })
+        const links: string[] = await page.evaluate(() =>
+          Array.from(document.querySelectorAll('a[href]')).map(a => (a as HTMLAnchorElement).href)
+        )
+
+        for (const link of links) {
+          const normalized = normalizeUrl(link)
+          if (normalized && normalized.startsWith(origin) && !visited.has(normalized)) {
+            queue.push({ url: normalized, depth: next.depth + 1 })
+          }
+        }
+      } catch (error) {
+        // Page in the queue failed to load during discovery — it's still
+        // kept as a discovered URL to attempt scanning, just without
+        // contributing further links to the crawl.
+        console.error(`Crawl discovery failed for ${next.url}:`, error)
+      }
+    }
+
+    return discovered
   } finally {
     await browser.close()
   }
+}
+
+export interface DiscoveredPages {
+  urls: string[]
+  source: 'sitemap' | 'crawl'
+}
+
+export async function discoverPages(
+  baseUrl: string,
+  maxPages: number,
+  crawlDepth: number
+): Promise<DiscoveredPages> {
+  const origin = new URL(baseUrl).origin
+  const disallowRules = await fetchRobotsDisallowRules(origin)
+
+  const sitemapUrls = await fetchSitemapUrls(origin, maxPages)
+  if (sitemapUrls.length > 0) {
+    const base = normalizeUrl(baseUrl)
+    const filtered = sitemapUrls
+      .map(normalizeUrl)
+      .filter((u): u is string => !!u && u.startsWith(origin) && !isDisallowed(u, disallowRules))
+
+    const ordered = base ? [base, ...filtered.filter(u => u !== base)] : filtered
+    const deduped = Array.from(new Set(ordered)).slice(0, maxPages)
+
+    if (deduped.length > 0) {
+      return { urls: deduped, source: 'sitemap' }
+    }
+  }
+
+  const crawled = await bfsCrawl(baseUrl, maxPages, crawlDepth, disallowRules)
+  return { urls: crawled, source: 'crawl' }
+}
+
+// Multi-page scanning for comprehensive analysis
+export async function scanMultiplePages(
+  baseUrl: string,
+  options: ScanOptions = {}
+): Promise<{ results: ScanResult[]; discoveryMethod: 'sitemap' | 'crawl' }> {
+  const { maxPages = 5, crawlDepth = 2 } = options
+
+  const { urls, source } = await discoverPages(baseUrl, maxPages, crawlDepth)
+
+  const results: ScanResult[] = []
+  for (const url of urls) {
+    try {
+      const result = await scanWebsite(url, options)
+      results.push(result)
+    } catch (error) {
+      console.error(`Failed to scan ${url}:`, error)
+    }
+  }
+
+  return { results, discoveryMethod: source }
 }

@@ -3,8 +3,9 @@
 import { useParams, useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Copy, CheckCircle, AlertCircle, Code, Eye, Download, FileText, Filter, Brain } from 'lucide-react'
+import { Copy, CheckCircle, AlertCircle, Code, Eye, Download, FileText, ClipboardCheck, Brain } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { generateVpatRows } from '@/lib/vpat-generator'
 
 interface Violation {
   id: string
@@ -53,6 +54,26 @@ interface CodeFix {
   }
 }
 
+interface ManualAuditItem {
+  id: string
+  category: string
+  code: string
+  title: string
+  guidance: string
+  wcagReference?: string | null
+  status: 'not_started' | 'pass' | 'fail' | 'not_applicable'
+  notes?: string | null
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  'keyboard-navigation': 'Keyboard Navigation',
+  'screen-reader': 'Screen Reader',
+  'reading-order': 'Reading Order & Structure',
+  'color-and-contrast': 'Color & Contrast',
+  'zoom-and-reflow': 'Zoom & Reflow',
+  forms: 'Forms',
+}
+
 interface ScanResult {
   scanId: string
   url: string
@@ -87,10 +108,12 @@ export default function ResultsPage() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedViolation, setSelectedViolation] = useState<Violation | null>(null)
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'violations' | 'fixes'>('overview')
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'violations' | 'fixes' | 'audit'>('overview')
   const [filterPriority, setFilterPriority] = useState<string>('all')
   const [sortBy, setSortBy] = useState<'priority' | 'impact' | 'effort'>('priority')
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
+  const [auditItems, setAuditItems] = useState<ManualAuditItem[]>([])
+  const [auditLoading, setAuditLoading] = useState(true)
 
   useEffect(() => {
     const fetchScanResult = async () => {
@@ -118,6 +141,42 @@ export default function ResultsPage() {
 
     fetchScanResult()
   }, [scanId])
+
+  useEffect(() => {
+    const fetchAuditItems = async () => {
+      try {
+        const response = await fetch(`/api/scans/${scanId}/audit`)
+        if (response.ok) {
+          const data = await response.json()
+          setAuditItems(data.items || [])
+        }
+      } catch (error) {
+        console.error('Error fetching manual audit checklist:', error)
+      } finally {
+        setAuditLoading(false)
+      }
+    }
+
+    fetchAuditItems()
+  }, [scanId])
+
+  const handleAuditUpdate = async (itemId: string, updates: { status?: string; notes?: string }) => {
+    const previous = auditItems
+    setAuditItems(items => items.map(item => (item.id === itemId ? { ...item, ...updates } as ManualAuditItem : item)))
+
+    try {
+      const response = await fetch(`/api/scans/${scanId}/audit`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId, ...updates }),
+      })
+      if (!response.ok) throw new Error('Failed to save')
+    } catch (error) {
+      console.error('Failed to save checklist update:', error)
+      setAuditItems(previous)
+      toast.error('Failed to save checklist update')
+    }
+  }
 
   if (loading) {
     return (
@@ -279,6 +338,79 @@ export default function ResultsPage() {
     toast.success('PDF report downloaded')
   }
 
+  const handleExportVpat = async () => {
+    if (!scanResult) return
+
+    const rows = generateVpatRows(scanResult.violations, auditItems)
+    const { jsPDF } = await import('jspdf')
+    const doc = new jsPDF()
+    const marginX = 12
+    const pageHeight = doc.internal.pageSize.getHeight()
+    const pageWidth = doc.internal.pageSize.getWidth()
+    let y = 18
+
+    const ensureSpace = (needed: number) => {
+      if (y + needed > pageHeight - 14) {
+        doc.addPage()
+        y = 18
+      }
+    }
+
+    doc.setFontSize(16)
+    doc.text('VPAT 2.4 — WCAG 2.1 Edition (Draft)', marginX, y)
+    y += 8
+    doc.setFontSize(10)
+    doc.setTextColor(90)
+    doc.text(`Product/Page: ${scanResult.url}`, marginX, y)
+    y += 5
+    doc.text(`Report generated: ${new Date().toLocaleString()}`, marginX, y)
+    y += 8
+
+    doc.setFontSize(8.5)
+    const disclaimer = doc.splitTextToSize(
+      'This draft is generated from automated scan results and the manual audit checklist completed in Accessibility Navigator. "Supports" is only assigned when a criterion was both free of automated violations AND explicitly verified in a manual review — "Not Evaluated" means it requires further manual verification before conformance can be claimed. This is a starting point for a full audit, not a substitute for one.',
+      pageWidth - marginX * 2
+    )
+    doc.text(disclaimer, marginX, y)
+    y += disclaimer.length * 4 + 6
+    doc.setTextColor(0)
+
+    doc.setFontSize(9)
+    const colX = { criterion: marginX, name: marginX + 16, level: marginX + 92, conformance: marginX + 106 }
+    const drawHeader = () => {
+      doc.setFont('helvetica', 'bold')
+      doc.text('Criteria', colX.criterion, y)
+      doc.text('Level', colX.level, y)
+      doc.text('Conformance', colX.conformance, y)
+      y += 5
+      doc.setFont('helvetica', 'normal')
+    }
+    drawHeader()
+
+    rows.forEach(row => {
+      const nameLines = doc.splitTextToSize(`${row.criterion.id} ${row.criterion.name}`, 74)
+      const remarkLines = doc.splitTextToSize(row.remarks, pageWidth - marginX * 2 - 4)
+      const rowHeight = Math.max(nameLines.length, 1) * 4 + remarkLines.length * 3.6 + 2
+
+      ensureSpace(rowHeight + 2)
+      if (y === 18) drawHeader()
+
+      doc.text(nameLines, colX.name, y)
+      doc.text(row.criterion.level, colX.level, y)
+      doc.text(row.conformance, colX.conformance, y)
+      y += Math.max(nameLines.length, 1) * 4
+      doc.setTextColor(110)
+      doc.setFontSize(7.5)
+      doc.text(remarkLines, colX.name, y)
+      doc.setFontSize(9)
+      doc.setTextColor(0)
+      y += remarkLines.length * 3.6 + 3
+    })
+
+    doc.save(`vpat-draft-${scanId}.pdf`)
+    toast.success('VPAT draft downloaded')
+  }
+
   const getFrameworkIcon = (framework: string) => {
     switch (framework) {
       case 'react': return '⚛️'
@@ -378,6 +510,16 @@ export default function ResultsPage() {
                 Code Fixes ({scanResult.codeFixes.length})
               </button>
             )}
+            <button
+              onClick={() => setSelectedTab('audit')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                selectedTab === 'audit'
+                  ? 'border-indigo-500 text-indigo-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Manual Audit {auditItems.length > 0 && `(${auditItems.filter(i => i.status !== 'not_started').length}/${auditItems.length})`}
+            </button>
           </nav>
         </div>
       </div>
@@ -515,7 +657,57 @@ export default function ResultsPage() {
                   <FileText className="w-4 h-4" />
                   Export CSV
                 </button>
+                <button
+                  onClick={handleExportVpat}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <ClipboardCheck className="w-4 h-4" />
+                  Export VPAT Draft
+                </button>
               </div>
+            </motion.div>
+
+            {/* Manual Audit Progress */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-lg shadow-md p-6"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-lg font-semibold text-gray-900">Manual Audit</h3>
+                <button
+                  onClick={() => setSelectedTab('audit')}
+                  className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+                >
+                  Open checklist →
+                </button>
+              </div>
+              <p className="text-sm text-gray-600 mb-3">
+                Automated scanning catches roughly a third of real WCAG failures. This checklist covers what
+                only a human can verify — keyboard traps, screen reader behavior, reading order, and more.
+              </p>
+              {!auditLoading && auditItems.length > 0 && (
+                <div>
+                  <div className="w-full bg-gray-100 rounded-full h-2 mb-1">
+                    <div
+                      className="bg-indigo-600 h-2 rounded-full transition-all"
+                      style={{
+                        width: `${Math.round(
+                          (auditItems.filter(i => i.status !== 'not_started').length / auditItems.length) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {auditItems.filter(i => i.status !== 'not_started').length} of {auditItems.length} checks completed
+                    {auditItems.some(i => i.status === 'fail') && (
+                      <span className="text-red-600 font-medium">
+                        {' '}· {auditItems.filter(i => i.status === 'fail').length} failed
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </motion.div>
           </div>
         )}
@@ -598,6 +790,88 @@ export default function ResultsPage() {
                 </pre>
               </motion.div>
             ))}
+          </div>
+        )}
+
+        {/* Manual Audit Tab */}
+        {selectedTab === 'audit' && (
+          <div className="space-y-6">
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 text-sm text-indigo-900">
+              Work through each item using the real device/assistive tech named in the guidance — a keyboard
+              alone, a screen reader, a color-blindness simulator. Mark it Pass, Fail, or Not Applicable as you
+              go. Progress is saved automatically and feeds directly into the VPAT export above.
+            </div>
+
+            {auditLoading ? (
+              <div className="text-center py-12 text-gray-500">Loading checklist…</div>
+            ) : (
+              Object.entries(
+                auditItems.reduce<Record<string, ManualAuditItem[]>>((groups, item) => {
+                  (groups[item.category] ||= []).push(item)
+                  return groups
+                }, {})
+              ).map(([category, items]) => (
+                <div key={category} className="bg-white rounded-lg shadow-md overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+                    <h3 className="font-semibold text-gray-900">
+                      {CATEGORY_LABELS[category] || category}
+                    </h3>
+                  </div>
+                  <div className="divide-y divide-gray-100">
+                    {items.map(item => (
+                      <div key={item.id} className="p-6">
+                        <div className="flex items-start justify-between gap-4 mb-2">
+                          <div>
+                            <h4 className="font-medium text-gray-900">{item.title}</h4>
+                            {item.wcagReference && (
+                              <span className="text-xs text-gray-500">{item.wcagReference}</span>
+                            )}
+                          </div>
+                          <div className="flex gap-1 flex-shrink-0">
+                            {(['not_started', 'pass', 'fail', 'not_applicable'] as const).map(status => {
+                              const labels: Record<string, string> = {
+                                not_started: 'Not started',
+                                pass: 'Pass',
+                                fail: 'Fail',
+                                not_applicable: 'N/A',
+                              }
+                              const active = item.status === status
+                              const activeColors: Record<string, string> = {
+                                not_started: 'bg-gray-600 text-white',
+                                pass: 'bg-green-600 text-white',
+                                fail: 'bg-red-600 text-white',
+                                not_applicable: 'bg-gray-400 text-white',
+                              }
+                              return (
+                                <button
+                                  key={status}
+                                  onClick={() => handleAuditUpdate(item.id, { status })}
+                                  className={`px-2.5 py-1 rounded text-xs font-medium border ${
+                                    active
+                                      ? activeColors[status]
+                                      : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                                  }`}
+                                >
+                                  {labels[status]}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-3">{item.guidance}</p>
+                        <textarea
+                          defaultValue={item.notes || ''}
+                          onBlur={e => handleAuditUpdate(item.id, { notes: e.target.value })}
+                          placeholder="Notes (optional) — what you checked, what you found…"
+                          rows={2}
+                          className="w-full text-sm border border-gray-200 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         )}
       </div>

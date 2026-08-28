@@ -18,7 +18,7 @@ export default function ScanForm({ onScanStart }: ScanFormProps) {
   const [options, setOptions] = useState({
     maxPages: 10,
     useAI: true,
-    depth: 1,
+    crawlDepth: 1,
     customRules: true,
     includePerformance: true,
   })
@@ -205,8 +205,8 @@ export default function ScanForm({ onScanStart }: ScanFormProps) {
                     </label>
                     <select
                       id="depth"
-                      value={options.depth}
-                      onChange={(e) => setOptions({ ...options, depth: parseInt(e.target.value) })}
+                      value={options.crawlDepth}
+                      onChange={(e) => setOptions({ ...options, crawlDepth: parseInt(e.target.value) })}
                       className="form-input"
                       disabled={scanMutation.isPending}
                     >
