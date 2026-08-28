@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { runScan, mapScanErrorToResponse } from '@/lib/run-scan'
+import { requireOrganizationContext } from '@/lib/organizations'
 import { logger } from '@/lib/logger'
 
 // Reads the caller's session on every request — never statically
@@ -10,17 +9,21 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Sign in to run a scan' },
-        { status: 401 }
-      )
+    const ctx = await requireOrganizationContext()
+    if (!ctx.ok) {
+      return NextResponse.json({ error: ctx.error }, { status: ctx.status })
     }
 
     const { url, options = {}, siteContext = {}, useAI = true } = await request.json()
 
-    const result = await runScan({ userId: session.user.id, url, options, siteContext, useAI })
+    const result = await runScan({
+      organizationId: ctx.organizationId,
+      createdByUserId: ctx.userId,
+      url,
+      options,
+      siteContext,
+      useAI,
+    })
 
     return NextResponse.json({
       success: true,

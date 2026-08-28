@@ -1,21 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { requireOrganizationContext } from '@/lib/organizations'
 
 // Reads the caller's session on every request — never statically
 // pre-rendered/cached, or every user would see the same response.
 export const dynamic = 'force-dynamic'
 
-// GET /api/scans - Get the signed-in user's own scans
+// GET /api/scans - Get the signed-in user's organization's scans
 export async function GET(request: NextRequest) {
   try {
     if (!process.env.DATABASE_URL) {
       return NextResponse.json([])
     }
 
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const ctx = await requireOrganizationContext()
+    if (!ctx.ok) {
       return NextResponse.json([])
     }
 
@@ -23,7 +22,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '10')
 
     const scans = await prisma.scan.findMany({
-      where: { userId: session.user.id },
+      where: { organizationId: ctx.organizationId },
       include: {
         violations: {
           select: {
@@ -51,9 +50,9 @@ export async function GET(request: NextRequest) {
 // not the primary scan flow which is POST /api/scan)
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
+    const ctx = await requireOrganizationContext()
+    if (!ctx.ok) {
+      return NextResponse.json({ error: ctx.error }, { status: ctx.status })
     }
 
     const body = await request.json()
@@ -64,7 +63,8 @@ export async function POST(request: NextRequest) {
         url,
         complianceScore,
         pagesScanned,
-        userId: session.user.id,
+        organizationId: ctx.organizationId,
+        createdByUserId: ctx.userId,
         violations: {
           create: (violations || []).map((v: any) => ({
             violationId: v.id,

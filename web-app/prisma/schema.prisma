@@ -15,31 +15,62 @@ model User {
   email     String   @unique
   name      String?
   password  String?  // bcrypt hash; null for accounts without password auth
-  stripeCustomerId String? @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  scans     Scan[]
+  memberships Membership[]
+}
+
+// Every account belongs to at least one Organization — a fresh signup gets
+// a personal one automatically (see lib/organizations.ts), so the org
+// model applies uniformly instead of needing a separate "solo user" code
+// path. Scans, billing, and API keys all hang off the org, not the user
+// directly, so a team can share scan history/quota and a user can belong
+// to more than one org (e.g. a consultant auditing several clients).
+model Organization {
+  id               String   @id @default(cuid())
+  name             String
+  stripeCustomerId String?  @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  memberships  Membership[]
+  scans        Scan[]
+  apiKeys      ApiKey[]
   subscription Subscription?
-  apiKeys   ApiKey[]
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           String       @default("member") // owner, admin, member
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@index([userId])
 }
 
 // Machine-to-machine credentials for the CI integration and any future
 // programmatic access. Only the tier's api_access flag (PRICING_TIERS in
 // lib/stripe.ts) gates issuance — the key itself carries no scope beyond
-// "act as this user" for scanning endpoints. Only keyHash is stored; the
-// plaintext key is shown to the user exactly once, at creation.
+// "act as this organization" for scanning endpoints. Only keyHash is
+// stored; the plaintext key is shown to the user exactly once, at creation.
 model ApiKey {
-  id         String    @id @default(cuid())
-  userId     String
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name       String
-  keyPrefix  String    // first chars of the key, shown for identification
-  keyHash    String    @unique
-  lastUsedAt DateTime?
-  revokedAt  DateTime?
-  createdAt  DateTime  @default(now())
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdByUserId String?      // audit trail only, not an access-control boundary
+  name            String
+  keyPrefix       String       // first chars of the key, shown for identification
+  keyHash         String       @unique
+  lastUsedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime     @default(now())
 
-  @@index([userId])
+  @@index([organizationId])
 }
 
 // Sliding-window rate limiting for auth and scan endpoints.
@@ -59,15 +90,16 @@ model Scan {
   timestamp       DateTime    @default(now())
   complianceScore Int
   pagesScanned    Int
-  userId          String?
-  user            User?       @relation(fields: [userId], references: [id])
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdByUserId String?     // audit trail only — who ran it, not an access-control boundary
   violations      Violation[]
   metadata        ScanMetadata?
   manualAuditItems ManualAuditItem[]
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  @@index([userId])
+  @@index([organizationId])
   @@index([timestamp])
 }
 
@@ -114,8 +146,8 @@ model ScanMetadata {
 
 model Subscription {
   id              String    @id @default(cuid())
-  userId          String    @unique
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId  String    @unique
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   stripeSubscriptionId String @unique
   tier            String    // starter, professional, enterprise
   status          String    // active, canceled, past_due, incomplete
@@ -124,7 +156,7 @@ model Subscription {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  @@index([userId])
+  @@index([organizationId])
   @@index([status])
 }
 

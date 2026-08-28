@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveUserFromApiKey } from '@/lib/api-keys'
+import { resolveOrganizationFromApiKey } from '@/lib/api-keys'
 import { runScan, mapScanErrorToResponse } from '@/lib/run-scan'
 import { isFeatureAvailable } from '@/lib/usage-tracking'
 import { computeNewViolations, VALID_FAIL_ON_VALUES } from '@/lib/ci-scan-diff'
 import { prisma } from '@/lib/prisma'
 import { logger } from '@/lib/logger'
+
+// Authenticated with an API key read from the request, not a session —
+// always dynamic regardless.
+export const dynamic = 'force-dynamic'
 
 // POST /api/ci/scan — machine-to-machine equivalent of POST /api/scan, for
 // the GitHub Action (.github/actions/accessibility-scan) and any future CLI
@@ -25,13 +29,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const resolved = await resolveUserFromApiKey(apiKey)
+    const resolved = await resolveOrganizationFromApiKey(apiKey)
     if (!resolved) {
       return NextResponse.json({ error: 'Invalid or revoked API key' }, { status: 401 })
     }
-    const { userId } = resolved
+    const { organizationId } = resolved
 
-    const hasApiAccess = await isFeatureAvailable(userId, 'api_access')
+    const hasApiAccess = await isFeatureAvailable(organizationId, 'api_access')
     if (!hasApiAccess) {
       return NextResponse.json(
         { error: 'API access is not included in your current plan. Upgrade to Professional or higher.' },
@@ -52,14 +56,14 @@ export async function POST(request: NextRequest) {
 
     // Baseline: the most recent scan of this exact URL before this run.
     const baseline = await prisma.scan.findFirst({
-      where: { userId, url: formattedUrl },
+      where: { organizationId, url: formattedUrl },
       orderBy: { timestamp: 'desc' },
       include: { violations: true },
     })
 
     // CI runs default to no AI prioritization — it's a pass/fail gate, not
     // a report a human is about to read, and it saves the Claude call.
-    const result = await runScan({ userId, url, options, useAI })
+    const result = await runScan({ organizationId, url, options, useAI })
 
     const newViolations = computeNewViolations(result.savedScan.violations, baseline?.violations ?? [], failOn)
     const passed = newViolations.length === 0

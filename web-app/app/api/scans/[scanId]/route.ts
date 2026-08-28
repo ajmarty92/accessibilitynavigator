@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { requireOrganizationContext } from '@/lib/organizations'
 
 // Reads the caller's session on every request — never statically
 // pre-rendered/cached, or every user would see the same response.
@@ -21,9 +20,9 @@ export async function GET(
       )
     }
 
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
+    const ctx = await requireOrganizationContext()
+    if (!ctx.ok) {
+      return NextResponse.json({ error: ctx.error }, { status: ctx.status })
     }
 
     const scan = await prisma.scan.findUnique({
@@ -47,7 +46,7 @@ export async function GET(
       )
     }
 
-    if (scan.userId !== session.user.id) {
+    if (scan.organizationId !== ctx.organizationId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 

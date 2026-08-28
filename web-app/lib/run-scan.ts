@@ -2,15 +2,15 @@ import type { Prisma } from '@prisma/client'
 import { scanWebsite, detectFramework, scanMultiplePages, ScanOptions } from './scanner'
 import { analyzeViolationsWithAI, SiteContext, AIAnalysis } from './ai-prioritizer'
 import { calculateComplianceScore } from './compliance-score'
-import { canUserScan, trackScanUsage } from './usage-tracking'
+import { canOrganizationScan, trackScanUsage } from './usage-tracking'
 import { checkRateLimit } from './rate-limit'
 import { prisma } from './prisma'
 import { validateUrl } from './security'
 import { logger } from './logger'
 
-// Hard ceiling on scans per user per hour, independent of subscription tier.
-// Protects against a compromised session/API key or runaway client from
-// spinning up unbounded headless-Chrome instances.
+// Hard ceiling on scans per organization per hour, independent of
+// subscription tier. Protects against a compromised session/API key or
+// runaway client from spinning up unbounded headless-Chrome instances.
 const SCAN_RATE_LIMIT = 10
 const SCAN_RATE_WINDOW_MS = 60 * 60 * 1000
 
@@ -47,7 +47,8 @@ function parseEffortHours(estimate?: string): number | null {
 }
 
 export interface RunScanParams {
-  userId: string
+  organizationId: string
+  createdByUserId?: string
   url: string
   options?: {
     maxPages?: number
@@ -85,7 +86,7 @@ export interface RunScanResult {
 // the API-key-authenticated POST /api/ci/scan route: validate, rate-limit,
 // check quota, crawl/scan, run AI prioritization, score, and persist.
 export async function runScan(params: RunScanParams): Promise<RunScanResult> {
-  const { userId, url, options = {}, siteContext = {}, useAI = true } = params
+  const { organizationId, createdByUserId, url, options = {}, siteContext = {}, useAI = true } = params
 
   if (!url || typeof url !== 'string') {
     throw new ScanError('Valid URL is required', 400)
@@ -98,7 +99,7 @@ export async function runScan(params: RunScanParams): Promise<RunScanResult> {
     throw new ScanError(validationResult.reason || 'Invalid URL', 403)
   }
 
-  const rateLimit = await checkRateLimit(`scan:${userId}`, SCAN_RATE_LIMIT, SCAN_RATE_WINDOW_MS)
+  const rateLimit = await checkRateLimit(`scan:${organizationId}`, SCAN_RATE_LIMIT, SCAN_RATE_WINDOW_MS)
   if (!rateLimit.allowed) {
     throw new ScanError(
       `Too many scans. Please try again after ${rateLimit.resetAt.toLocaleTimeString()}.`,
@@ -106,7 +107,7 @@ export async function runScan(params: RunScanParams): Promise<RunScanResult> {
     )
   }
 
-  const usage = await canUserScan(userId)
+  const usage = await canOrganizationScan(organizationId)
   if (!usage.canScan) {
     throw new ScanError(usage.reason || 'Scan limit reached for your plan', 403)
   }
@@ -173,7 +174,8 @@ export async function runScan(params: RunScanParams): Promise<RunScanResult> {
   const savedScan = await prisma.scan.create({
     data: {
       url: formattedUrl,
-      userId,
+      organizationId,
+      createdByUserId,
       complianceScore,
       pagesScanned,
       metadata: {
@@ -220,7 +222,7 @@ export async function runScan(params: RunScanParams): Promise<RunScanResult> {
     include: { violations: true },
   })
 
-  await trackScanUsage(userId, savedScan.id)
+  await trackScanUsage(organizationId, savedScan.id)
 
   return {
     savedScan,

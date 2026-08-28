@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { requireOrganizationContext } from '@/lib/organizations'
 import { MANUAL_AUDIT_CHECKLIST } from '@/lib/manual-audit-checklist'
 import { logger } from '@/lib/logger'
 
@@ -11,10 +10,10 @@ export const dynamic = 'force-dynamic'
 
 const VALID_STATUSES = ['not_started', 'pass', 'fail', 'not_applicable']
 
-async function assertOwnership(scanId: string, userId: string) {
-  const scan = await prisma.scan.findUnique({ where: { id: scanId }, select: { userId: true } })
+async function assertOwnership(scanId: string, organizationId: string) {
+  const scan = await prisma.scan.findUnique({ where: { id: scanId }, select: { organizationId: true } })
   if (!scan) return { ok: false as const, status: 404, error: 'Scan not found' }
-  if (scan.userId !== userId) return { ok: false as const, status: 403, error: 'Access denied' }
+  if (scan.organizationId !== organizationId) return { ok: false as const, status: 403, error: 'Access denied' }
   return { ok: true as const }
 }
 
@@ -25,12 +24,12 @@ export async function GET(
   { params }: { params: { scanId: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
+    const ctx = await requireOrganizationContext()
+    if (!ctx.ok) {
+      return NextResponse.json({ error: ctx.error }, { status: ctx.status })
     }
 
-    const ownership = await assertOwnership(params.scanId, session.user.id)
+    const ownership = await assertOwnership(params.scanId, ctx.organizationId)
     if (!ownership.ok) {
       return NextResponse.json({ error: ownership.error }, { status: ownership.status })
     }
@@ -68,12 +67,12 @@ export async function PATCH(
   { params }: { params: { scanId: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
+    const ctx = await requireOrganizationContext()
+    if (!ctx.ok) {
+      return NextResponse.json({ error: ctx.error }, { status: ctx.status })
     }
 
-    const ownership = await assertOwnership(params.scanId, session.user.id)
+    const ownership = await assertOwnership(params.scanId, ctx.organizationId)
     if (!ownership.ok) {
       return NextResponse.json({ error: ownership.error }, { status: ownership.status })
     }
@@ -97,7 +96,7 @@ export async function PATCH(
       data: {
         ...(status !== undefined ? { status } : {}),
         ...(notes !== undefined ? { notes } : {}),
-        checkedByUserId: session.user.id,
+        checkedByUserId: ctx.userId,
         checkedAt: new Date(),
       },
     })

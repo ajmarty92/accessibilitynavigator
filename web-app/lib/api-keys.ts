@@ -27,10 +27,12 @@ export function looksLikeApiKey(value: string): boolean {
   return value.startsWith(KEY_PREFIX)
 }
 
-// Resolves a presented API key to the user it belongs to, or null if it's
-// unknown, revoked. Updates lastUsedAt on success — best-effort, never
-// blocks the caller on that write failing.
-export async function resolveUserFromApiKey(key: string): Promise<{ userId: string; keyId: string } | null> {
+// Resolves a presented API key to the organization it acts on behalf of,
+// or null if it's unknown or revoked. Updates lastUsedAt on success —
+// best-effort, never blocks the caller on that write failing.
+export async function resolveOrganizationFromApiKey(
+  key: string
+): Promise<{ organizationId: string; keyId: string } | null> {
   if (!looksLikeApiKey(key)) return null
 
   const record = await prisma.apiKey.findUnique({ where: { keyHash: hashApiKey(key) } })
@@ -40,5 +42,5 @@ export async function resolveUserFromApiKey(key: string): Promise<{ userId: stri
     .update({ where: { id: record.id }, data: { lastUsedAt: new Date() } })
     .catch(() => undefined)
 
-  return { userId: record.userId, keyId: record.id }
+  return { organizationId: record.organizationId, keyId: record.id }
 }

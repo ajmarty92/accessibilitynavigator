@@ -128,6 +128,12 @@ export default function HomePage() {
                   >
                     API Keys
                   </Link>
+                  <Link
+                    href="/settings/organization"
+                    className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200"
+                  >
+                    Organization
+                  </Link>
                   <span className="text-sm text-secondary-600">{session.user?.email}</span>
                   <button
                     onClick={() => signOut({ callbackUrl: '/' })}
@@ -194,6 +200,9 @@ export default function HomePage() {
                     </Link>
                     <Link href="/settings/api-keys" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
                       API Keys
+                    </Link>
+                    <Link href="/settings/organization" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
+                      Organization
                     </Link>
                     <button
                       onClick={() => signOut({ callbackUrl: '/' })}

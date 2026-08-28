@@ -249,16 +249,17 @@ export async function getCustomerSubscription(customerId: string): Promise<Subsc
 }
 
 // Keeps the local Subscription table in sync with Stripe. This is the
-// source of truth for canUserScan()/usage-tracking — the subscriptions
-// API route also writes here for immediate UX, but this webhook is what
-// keeps it correct across renewals, dunning, and cancellations that don't
-// originate from our own API calls (e.g. changes made in the Stripe
-// dashboard, or a customer canceling via the billing portal).
+// source of truth for canOrganizationScan()/usage-tracking — the
+// subscriptions API route also writes here for immediate UX, but this
+// webhook is what keeps it correct across renewals, dunning, and
+// cancellations that don't originate from our own API calls (e.g. changes
+// made in the Stripe dashboard, or a customer canceling via the billing
+// portal). Billing is per-organization, not per-user.
 export async function upsertSubscriptionFromStripe(subscription: Stripe.Subscription) {
   const customerId = subscription.customer as string
-  const user = await prisma.user.findUnique({ where: { stripeCustomerId: customerId } })
+  const organization = await prisma.organization.findUnique({ where: { stripeCustomerId: customerId } })
 
-  if (!user) {
+  if (!organization) {
     logger.warn('Received Stripe subscription event for unknown customer:', customerId)
     return
   }
@@ -266,7 +267,7 @@ export async function upsertSubscriptionFromStripe(subscription: Stripe.Subscrip
   const tierId = subscription.metadata?.tier || 'starter'
 
   await prisma.subscription.upsert({
-    where: { userId: user.id },
+    where: { organizationId: organization.id },
     update: {
       stripeSubscriptionId: subscription.id,
       tier: tierId,
@@ -275,7 +276,7 @@ export async function upsertSubscriptionFromStripe(subscription: Stripe.Subscrip
       cancelAtPeriodEnd: subscription.cancel_at_period_end,
     },
     create: {
-      userId: user.id,
+      organizationId: organization.id,
       stripeSubscriptionId: subscription.id,
       tier: tierId,
       status: subscription.status,

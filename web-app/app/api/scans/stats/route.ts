@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { requireOrganizationContext } from '@/lib/organizations'
 
 // Reads the caller's session on every request — never statically
 // pre-rendered/cached, or every user would see the same response.
@@ -27,8 +26,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(empty)
     }
 
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
+    const ctx = await requireOrganizationContext()
+    if (!ctx.ok) {
       return NextResponse.json(empty)
     }
 
@@ -38,7 +37,7 @@ export async function GET(request: NextRequest) {
     // 1. Fetch the last N scans to aggregate
     // We only need the ID and complianceScore, which is much faster than fetching full scan data
     const scans = await prisma.scan.findMany({
-      where: { userId: session.user.id },
+      where: { organizationId: ctx.organizationId },
       take: limit,
       orderBy: { timestamp: 'desc' },
       select: {

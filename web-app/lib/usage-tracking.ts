@@ -9,52 +9,33 @@ export interface UsageMetrics {
   lastScanDate: Date | null
 }
 
-export async function getUserUsage(userId: string): Promise<UsageMetrics> {
+// Scans, quotas, and features are all tracked per-organization — a team
+// sharing an org shares its quota, the same way a single Stripe
+// subscription covers the whole org rather than each member individually.
+export async function getOrganizationUsage(organizationId: string): Promise<UsageMetrics> {
   try {
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
     const [scansThisMonth, scansToday, uniqueSites, lastScan] = await Promise.all([
-      // Get scans this month
       prisma.scan.count({
-        where: {
-          userId,
-          timestamp: {
-            gte: startOfMonth,
-          },
-        },
+        where: { organizationId, timestamp: { gte: startOfMonth } },
       }),
 
-      // Get scans today
       prisma.scan.count({
-        where: {
-          userId,
-          timestamp: {
-            gte: startOfDay,
-          },
-        },
+        where: { organizationId, timestamp: { gte: startOfDay } },
       }),
 
-      // Get unique sites tracked
       prisma.scan.groupBy({
         by: ['url'],
-        where: {
-          userId,
-        },
+        where: { organizationId },
       }),
 
-      // Get last scan date
       prisma.scan.findFirst({
-        where: {
-          userId,
-        },
-        orderBy: {
-          timestamp: 'desc',
-        },
-        select: {
-          timestamp: true,
-        },
+        where: { organizationId },
+        orderBy: { timestamp: 'desc' },
+        select: { timestamp: true },
       }),
     ])
 
@@ -65,7 +46,7 @@ export async function getUserUsage(userId: string): Promise<UsageMetrics> {
       lastScanDate: lastScan?.timestamp || null,
     }
   } catch (error) {
-    logger.error('Failed to get user usage:', error)
+    logger.error('Failed to get organization usage:', error)
     return {
       scansThisMonth: 0,
       scansToday: 0,
@@ -75,45 +56,42 @@ export async function getUserUsage(userId: string): Promise<UsageMetrics> {
   }
 }
 
-export async function canUserScan(userId: string): Promise<{
+export async function canOrganizationScan(organizationId: string): Promise<{
   canScan: boolean
   reason?: string
   scansRemaining?: number
   resetDate?: Date
 }> {
   try {
-    // Get user's subscription
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        subscription: true,
-      },
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      include: { subscription: true },
     })
 
-    if (!user) {
-      return { canScan: false, reason: 'User not found' }
+    if (!organization) {
+      return { canScan: false, reason: 'Organization not found' }
     }
 
     // If no subscription, check if they're in trial
-    if (!user.subscription) {
-      const usage = await getUserUsage(userId)
+    if (!organization.subscription) {
+      const usage = await getOrganizationUsage(organizationId)
       const trialScans = 5 // 5 free scans for trial
-      
+
       if (usage.scansThisMonth >= trialScans) {
-        return { 
-          canScan: false, 
+        return {
+          canScan: false,
           reason: 'Trial limit exceeded',
           scansRemaining: 0
         }
       }
-      
-      return { 
-        canScan: true, 
-        scansRemaining: trialScans - usage.scansThisMonth 
+
+      return {
+        canScan: true,
+        scansRemaining: trialScans - usage.scansThisMonth
       }
     }
 
-    const tier = PRICING_TIERS[user.subscription.tier]
+    const tier = PRICING_TIERS[organization.subscription.tier]
     if (!tier) {
       return { canScan: false, reason: 'Invalid subscription tier' }
     }
@@ -123,7 +101,7 @@ export async function canUserScan(userId: string): Promise<{
       return { canScan: true }
     }
 
-    const usage = await getUserUsage(userId)
+    const usage = await getOrganizationUsage(organizationId)
     const scansLimit = tier.features.scans as number
 
     if (usage.scansThisMonth >= scansLimit) {
@@ -131,102 +109,98 @@ export async function canUserScan(userId: string): Promise<{
       resetDate.setMonth(resetDate.getMonth() + 1)
       resetDate.setDate(1)
 
-      return { 
-        canScan: false, 
+      return {
+        canScan: false,
         reason: 'Scan limit exceeded for this month',
         scansRemaining: 0,
         resetDate
       }
     }
 
-    return { 
-      canScan: true, 
-      scansRemaining: scansLimit - usage.scansThisMonth 
+    return {
+      canScan: true,
+      scansRemaining: scansLimit - usage.scansThisMonth
     }
   } catch (error) {
-    logger.error('Failed to check user scan permission:', error)
+    logger.error('Failed to check organization scan permission:', error)
     return { canScan: false, reason: 'Unable to verify usage' }
   }
 }
 
-export async function trackScanUsage(userId: string, scanId: string): Promise<void> {
+export async function trackScanUsage(organizationId: string, scanId: string): Promise<void> {
   try {
     // This would be called after a successful scan
     // Usage is tracked implicitly by creating scan records in the database
-    logger.info(`Tracked scan usage for user ${userId}, scan ${scanId}`)
+    logger.info(`Tracked scan usage for organization ${organizationId}, scan ${scanId}`)
   } catch (error) {
     logger.error('Failed to track scan usage:', error)
   }
 }
 
-export async function checkSiteLimit(userId: string, newSiteUrl: string): Promise<{
+export async function checkSiteLimit(organizationId: string): Promise<{
   canAddSite: boolean
   reason?: string
   sitesRemaining?: number
 }> {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        subscription: true,
-      },
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      include: { subscription: true },
     })
 
-    if (!user) {
-      return { canAddSite: false, reason: 'User not found' }
+    if (!organization) {
+      return { canAddSite: false, reason: 'Organization not found' }
     }
 
-    // If no subscription, check trial limit
-    if (!user.subscription) {
+    if (!organization.subscription) {
       const uniqueSites = await prisma.scan.groupBy({
         by: ['url'],
-        where: { userId },
+        where: { organizationId },
       })
 
       const trialSitesLimit = 3 // 3 sites for trial
-      
+
       if (uniqueSites.length >= trialSitesLimit) {
-        return { 
-          canAddSite: false, 
+        return {
+          canAddSite: false,
           reason: 'Trial site limit exceeded',
           sitesRemaining: 0
         }
       }
 
-      return { 
-        canAddSite: true, 
-        sitesRemaining: trialSitesLimit - uniqueSites.length 
+      return {
+        canAddSite: true,
+        sitesRemaining: trialSitesLimit - uniqueSites.length
       }
     }
 
-    const tier = PRICING_TIERS[user.subscription.tier]
+    const tier = PRICING_TIERS[organization.subscription.tier]
     if (!tier) {
       return { canAddSite: false, reason: 'Invalid subscription tier' }
     }
 
-    // Enterprise has unlimited sites
     if (tier.features.sites === 'unlimited') {
       return { canAddSite: true }
     }
 
     const uniqueSites = await prisma.scan.groupBy({
       by: ['url'],
-      where: { userId },
+      where: { organizationId },
     })
 
     const sitesLimit = tier.features.sites as number
 
     if (uniqueSites.length >= sitesLimit) {
-      return { 
-        canAddSite: false, 
+      return {
+        canAddSite: false,
         reason: 'Site limit exceeded for current plan',
         sitesRemaining: 0
       }
     }
 
-    return { 
-      canAddSite: true, 
-      sitesRemaining: sitesLimit - uniqueSites.length 
+    return {
+      canAddSite: true,
+      sitesRemaining: sitesLimit - uniqueSites.length
     }
   } catch (error) {
     logger.error('Failed to check site limit:', error)
@@ -234,7 +208,7 @@ export async function checkSiteLimit(userId: string, newSiteUrl: string): Promis
   }
 }
 
-export async function getUsageStats(userId: string): Promise<{
+export async function getUsageStats(organizationId: string): Promise<{
   scansThisMonth: number
   scansLimit: number | 'unlimited'
   sitesTracked: number
@@ -246,24 +220,22 @@ export async function getUsageStats(userId: string): Promise<{
   resetDate: Date
 }> {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        subscription: true,
-      },
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      include: { subscription: true },
     })
 
-    if (!user) {
-      throw new Error('User not found')
+    if (!organization) {
+      throw new Error('Organization not found')
     }
 
-    const usage = await getUserUsage(userId)
+    const usage = await getOrganizationUsage(organizationId)
     const resetDate = new Date()
     resetDate.setMonth(resetDate.getMonth() + 1)
     resetDate.setDate(1)
 
-    if (!user.subscription) {
-      // Trial user stats
+    if (!organization.subscription) {
+      // Trial stats
       const trialScansLimit = 5
       const trialSitesLimit = 3
 
@@ -280,7 +252,7 @@ export async function getUsageStats(userId: string): Promise<{
       }
     }
 
-    const tier = PRICING_TIERS[user.subscription.tier]
+    const tier = PRICING_TIERS[organization.subscription.tier]
     if (!tier) {
       throw new Error('Invalid subscription tier')
     }
@@ -306,15 +278,15 @@ export async function getUsageStats(userId: string): Promise<{
 }
 
 export async function recordUsageEvent(
-  userId: string, 
+  organizationId: string,
   eventType: 'scan_completed' | 'site_added' | 'feature_used',
   metadata?: Record<string, any>
 ): Promise<void> {
   try {
     // This could be extended to track detailed usage analytics
     // For now, we'll just log the event
-    logger.info(`Usage event: ${eventType} for user ${userId}`, metadata)
-    
+    logger.info(`Usage event: ${eventType} for organization ${organizationId}`, metadata)
+
     // In a real implementation, you might:
     // - Save to a usage_events table
     // - Send to analytics service
@@ -325,27 +297,25 @@ export async function recordUsageEvent(
 }
 
 export async function isFeatureAvailable(
-  userId: string,
+  organizationId: string,
   feature: keyof PricingTier['features']
 ): Promise<boolean> {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        subscription: true,
-      },
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      include: { subscription: true },
     })
 
-    if (!user) {
+    if (!organization) {
       return false
     }
 
-    // Trial users get limited features
-    if (!user.subscription) {
+    // Trial orgs get limited features
+    if (!organization.subscription) {
       return ['ai_prioritization'].includes(feature)
     }
 
-    const tier = PRICING_TIERS[user.subscription.tier]
+    const tier = PRICING_TIERS[organization.subscription.tier]
     if (!tier) {
       return false
     }

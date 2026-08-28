@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
-import { getUserUsage, getUsageStats, isFeatureAvailable, recordUsageEvent } from '@/lib/usage-tracking'
+import { getOrganizationUsage, getUsageStats, isFeatureAvailable, recordUsageEvent } from '@/lib/usage-tracking'
+import { requireOrganizationContext } from '@/lib/organizations'
 
 // Reads the caller's session on every request — never statically
 // pre-rendered/cached, or every user would see the same response.
@@ -9,18 +8,18 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
+    const ctx = await requireOrganizationContext()
+    if (!ctx.ok) {
+      return NextResponse.json({ error: ctx.error }, { status: ctx.status })
     }
-    const userId = session.user.id
+    const { organizationId } = ctx
 
     const { searchParams } = new URL(request.url)
     const type = searchParams.get('type') // 'basic' | 'stats' | 'feature'
 
     switch (type) {
       case 'stats':
-        const stats = await getUsageStats(userId)
+        const stats = await getUsageStats(organizationId)
         return NextResponse.json(stats)
 
       case 'feature':
@@ -31,12 +30,12 @@ export async function GET(request: NextRequest) {
             { status: 400 }
           )
         }
-        const isAvailable = await isFeatureAvailable(userId, feature as any)
+        const isAvailable = await isFeatureAvailable(organizationId, feature as any)
         return NextResponse.json({ available: isAvailable })
 
       case 'basic':
       default:
-        const usage = await getUserUsage(userId)
+        const usage = await getOrganizationUsage(organizationId)
         return NextResponse.json(usage)
     }
 
@@ -51,9 +50,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
+    const ctx = await requireOrganizationContext()
+    if (!ctx.ok) {
+      return NextResponse.json({ error: ctx.error }, { status: ctx.status })
     }
 
     const body = await request.json()
@@ -66,7 +65,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    await recordUsageEvent(session.user.id, eventType, metadata)
+    await recordUsageEvent(ctx.organizationId, eventType, metadata)
 
     return NextResponse.json({ success: true })
 

@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { generateApiKey } from '@/lib/api-keys'
 import { isFeatureAvailable } from '@/lib/usage-tracking'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { requireOrganizationContext, isOrganizationAdmin } from '@/lib/organizations'
 import { prisma } from '@/lib/prisma'
 import { logger } from '@/lib/logger'
 
@@ -11,17 +10,17 @@ import { logger } from '@/lib/logger'
 // pre-rendered/cached, or every user would see the same response.
 export const dynamic = 'force-dynamic'
 
-// GET /api/api-keys — list the signed-in user's keys. Never returns the
-// hash or plaintext key, only enough to identify each one.
+// GET /api/api-keys — list the signed-in user's organization's keys. Never
+// returns the hash or plaintext key, only enough to identify each one.
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
+    const ctx = await requireOrganizationContext()
+    if (!ctx.ok) {
+      return NextResponse.json({ error: ctx.error }, { status: ctx.status })
     }
 
     const keys = await prisma.apiKey.findMany({
-      where: { userId: session.user.id },
+      where: { organizationId: ctx.organizationId },
       select: {
         id: true,
         name: true,
@@ -40,17 +39,23 @@ export async function GET() {
   }
 }
 
-// POST /api/api-keys — create a new key. Gated by the api_access feature
-// (Professional/Enterprise tiers). Returns the plaintext key exactly once.
+// POST /api/api-keys — create a new key for the organization. Gated by the
+// api_access feature (Professional/Enterprise tiers) and restricted to
+// owners/admins, since a key acts on behalf of the whole org. Returns the
+// plaintext key exactly once.
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
+    const ctx = await requireOrganizationContext()
+    if (!ctx.ok) {
+      return NextResponse.json({ error: ctx.error }, { status: ctx.status })
     }
-    const userId = session.user.id
+    const { userId, organizationId } = ctx
 
-    const hasApiAccess = await isFeatureAvailable(userId, 'api_access')
+    if (!(await isOrganizationAdmin(userId, organizationId))) {
+      return NextResponse.json({ error: 'Only organization owners/admins can create API keys' }, { status: 403 })
+    }
+
+    const hasApiAccess = await isFeatureAvailable(organizationId, 'api_access')
     if (!hasApiAccess) {
       return NextResponse.json(
         { error: 'API access is not included in your current plan. Upgrade to Professional or higher.' },
@@ -58,7 +63,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const rateLimit = await checkRateLimit(`api-key-create:${userId}`, 10, 60 * 60 * 1000)
+    const rateLimit = await checkRateLimit(`api-key-create:${organizationId}`, 10, 60 * 60 * 1000)
     if (!rateLimit.allowed) {
       return NextResponse.json({ error: 'Too many keys created recently. Try again later.' }, { status: 429 })
     }
@@ -68,7 +73,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'A name is required, e.g. "GitHub Actions"' }, { status: 400 })
     }
 
-    const activeKeyCount = await prisma.apiKey.count({ where: { userId, revokedAt: null } })
+    const activeKeyCount = await prisma.apiKey.count({ where: { organizationId, revokedAt: null } })
     if (activeKeyCount >= 20) {
       return NextResponse.json({ error: 'Key limit reached. Revoke an existing key first.' }, { status: 403 })
     }
@@ -76,7 +81,8 @@ export async function POST(request: NextRequest) {
     const generated = generateApiKey()
     const record = await prisma.apiKey.create({
       data: {
-        userId,
+        organizationId,
+        createdByUserId: userId,
         name: name.trim(),
         keyPrefix: generated.prefix,
         keyHash: generated.hash,

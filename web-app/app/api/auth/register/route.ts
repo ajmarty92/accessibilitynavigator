@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
 import { logger } from '@/lib/logger'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { createPersonalOrganization } from '@/lib/organizations'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -44,14 +45,21 @@ export async function POST(request: NextRequest) {
     }
 
     const passwordHash = await bcrypt.hash(password, 12)
+    const trimmedName = typeof name === 'string' && name.trim() ? name.trim() : null
+
     const user = await prisma.user.create({
       data: {
         email: normalizedEmail,
         password: passwordHash,
-        name: typeof name === 'string' && name.trim() ? name.trim() : null,
+        name: trimmedName,
       },
       select: { id: true, email: true, name: true },
     })
+
+    // Every account needs an organization to own its scans/billing/API
+    // keys — a fresh signup gets a personal one automatically so there's
+    // no separate "solo user" path through the rest of the app.
+    await createPersonalOrganization(user.id, trimmedName || normalizedEmail.split('@')[0])
 
     return NextResponse.json({ success: true, user })
   } catch (error) {

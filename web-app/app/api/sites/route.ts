@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { requireOrganizationContext } from '@/lib/organizations'
 import { logger } from '@/lib/logger'
 
 // Reads the caller's session on every request — never statically
@@ -23,19 +22,19 @@ export interface SiteSummary {
   history: SiteTrendPoint[]
 }
 
-// GET /api/sites — every distinct URL the signed-in user has scanned, with
-// its compliance score history. Powers the trend dashboard: a site scanned
-// once shows a single point, a site scanned repeatedly shows real movement
-// over time instead of a one-off snapshot.
+// GET /api/sites — every distinct URL the signed-in user's organization has
+// scanned, with its compliance score history. Powers the trend dashboard: a
+// site scanned once shows a single point, a site scanned repeatedly shows
+// real movement over time instead of a one-off snapshot.
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
+    const ctx = await requireOrganizationContext()
+    if (!ctx.ok) {
+      return NextResponse.json({ error: ctx.error }, { status: ctx.status })
     }
 
     const scans = await prisma.scan.findMany({
-      where: { userId: session.user.id },
+      where: { organizationId: ctx.organizationId },
       orderBy: { timestamp: 'asc' },
       select: { id: true, url: true, complianceScore: true, timestamp: true },
     })
