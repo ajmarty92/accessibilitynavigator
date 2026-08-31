@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.kotlin.kapt)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
     // Applied only when a real google-services.json is present (see README) so a
@@ -64,6 +65,12 @@ android {
     }
 }
 
+// Recommended by Hilt so kapt can process references to Hilt-generated
+// component classes that don't exist yet on an earlier annotation-processing round.
+kapt {
+    correctErrorTypes = true
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -85,13 +92,13 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.browser)
-    implementation(libs.androidx.work.runtime.ktx)
 
     implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
+    // Dagger/Hilt's core component processor uses kapt here (not ksp) — its KSP
+    // support is still less battle-tested for Hilt specifically; Room below
+    // uses ksp, which is well-supported.
+    kapt(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
-    implementation(libs.hilt.work)
-    ksp(libs.hilt.work.compiler)
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
@@ -108,7 +115,7 @@ dependencies {
     implementation(libs.coil.compose)
 
     implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.messaging.ktx)
+    implementation(libs.firebase.messaging)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

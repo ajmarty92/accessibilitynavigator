@@ -9,7 +9,7 @@ data class TweetDto(
     val id: String,
     val accountHandle: String,
     val accountDisplayName: String,
-    val accountAvatarUrl: String,
+    val accountAvatarUrl: String? = null,
     val text: String,
     val createdAt: String,
     val tweetUrl: String,

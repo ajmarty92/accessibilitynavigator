@@ -1,7 +1,6 @@
 package com.tweetwatch.monitor.ui.feed.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,9 +15,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.Reply
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
@@ -140,7 +139,7 @@ private fun FlagRow(isRetweet: Boolean, isReply: Boolean) {
             LabelWithIcon(icon = Icons.Filled.Repeat, text = stringResource(R.string.feed_retweeted))
         }
         if (isReply) {
-            LabelWithIcon(icon = Icons.Filled.Reply, text = stringResource(R.string.feed_reply))
+            LabelWithIcon(icon = Icons.AutoMirrored.Filled.Reply, text = stringResource(R.string.feed_reply))
         }
     }
 }

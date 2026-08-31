@@ -11,7 +11,7 @@ data class Tweet(
     val id: String,
     val accountHandle: String,
     val accountDisplayName: String,
-    val accountAvatarUrl: String,
+    val accountAvatarUrl: String?,
     val text: String,
     val createdAt: Instant,
     val tweetUrl: String,

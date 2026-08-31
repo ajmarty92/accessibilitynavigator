@@ -22,7 +22,7 @@ class AddAccountUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(handle: String): Result<Account> {
         val cleaned = handle.trim().removePrefix("@")
-        require(cleaned.isNotEmpty()) { "Handle must not be empty" }
+        if (cleaned.isEmpty()) return Result.failure(IllegalArgumentException("Handle must not be empty"))
         return accountRepository.addAccount(cleaned)
     }
 }

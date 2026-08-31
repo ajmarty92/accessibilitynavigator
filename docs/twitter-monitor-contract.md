@@ -21,7 +21,7 @@ on the backend and entered once in the Android app's settings screen).
   "id": "1234567890123456789",        // tweet ID (string, not int — overflows 32-bit/53-bit)
   "accountHandle": "someuser",         // without @
   "accountDisplayName": "Some User",
-  "accountAvatarUrl": "https://pbs.twimg.com/profile_images/....jpg",
+  "accountAvatarUrl": "https://pbs.twimg.com/profile_images/....jpg", // nullable — some X profiles have no resolvable avatar
   "text": "Full tweet text, unshortened where possible",
   "createdAt": "2026-08-31T14:23:00Z", // ISO-8601 UTC
   "tweetUrl": "https://x.com/someuser/status/1234567890123456789",
@@ -50,6 +50,7 @@ Response: `204`
 ### `GET /accounts`
 List tracked accounts.
 Response: `[{ "handle": "someuser", "displayName": "Some User", "avatarUrl": "https://..." }]`
+(`avatarUrl` is nullable, same as `accountAvatarUrl` on `Tweet` above.)
 
 ### `POST /accounts`
 Add a tracked account. Backend resolves the handle's profile via scraping.
@@ -83,7 +84,7 @@ present, expanded BigTextStyle otherwise) even when backgrounded/killed.
     "tweetId": "1234567890123456789",
     "accountHandle": "someuser",
     "accountDisplayName": "Some User",
-    "accountAvatarUrl": "https://...",
+    "accountAvatarUrl": "https://... (omitted entirely, not sent as null/empty, when the account has no avatar)",
     "text": "Full tweet text (may be truncated by backend to ~500 chars to stay under FCM's 4KB payload limit; full text always available via GET /tweets/{id})",
     "tweetUrl": "https://x.com/someuser/status/...",
     "mediaUrl": "https://... (first image only, may be absent)",

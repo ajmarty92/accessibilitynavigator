@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 data class AccountDto(
     val handle: String,
     val displayName: String,
-    val avatarUrl: String
+    val avatarUrl: String? = null
 )
 
 @Serializable

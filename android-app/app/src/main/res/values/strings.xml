@@ -22,8 +22,6 @@
     <string name="settings_add">Add</string>
     <string name="settings_remove_account_cd">Remove account</string>
     <string name="settings_no_accounts">No accounts tracked yet.</string>
-    <string name="settings_account_not_found">That handle could not be found.</string>
-    <string name="settings_account_add_failed">Couldn\'t add that account. Try again.</string>
 
     <string name="feed_empty">No tweets yet. Pull to refresh, or add tracked accounts in Settings.</string>
     <string name="feed_not_configured">Connect your backend in Settings to see tweets.</string>

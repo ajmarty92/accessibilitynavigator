@@ -13,7 +13,7 @@ data class TweetEntity(
     @PrimaryKey val id: String,
     val accountHandle: String,
     val accountDisplayName: String,
-    val accountAvatarUrl: String,
+    val accountAvatarUrl: String?,
     val text: String,
     val createdAtEpochMillis: Long,
     val tweetUrl: String,

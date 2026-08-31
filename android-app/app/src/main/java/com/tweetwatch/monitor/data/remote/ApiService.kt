@@ -21,11 +21,15 @@ import retrofit2.http.Query
  */
 interface ApiService {
 
+    // These three endpoints reply 204 with no body. Retrofit special-cases
+    // Response<Void> to skip converter invocation entirely — using
+    // Response<Unit> instead would make the kotlinx.serialization converter
+    // try (and fail) to parse an empty body as JSON.
     @POST("devices")
-    suspend fun registerDevice(@Body body: DeviceRegistrationRequestDto): Response<Unit>
+    suspend fun registerDevice(@Body body: DeviceRegistrationRequestDto): Response<Void>
 
     @DELETE("devices/{fcmToken}")
-    suspend fun unregisterDevice(@Path("fcmToken") fcmToken: String): Response<Unit>
+    suspend fun unregisterDevice(@Path("fcmToken") fcmToken: String): Response<Void>
 
     @GET("accounts")
     suspend fun getAccounts(): List<AccountDto>
@@ -34,7 +38,7 @@ interface ApiService {
     suspend fun addAccount(@Body body: AddAccountRequestDto): Response<AccountDto>
 
     @DELETE("accounts/{handle}")
-    suspend fun removeAccount(@Path("handle") handle: String): Response<Unit>
+    suspend fun removeAccount(@Path("handle") handle: String): Response<Void>
 
     @GET("tweets")
     suspend fun getTweets(

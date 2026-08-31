@@ -4,5 +4,5 @@ package com.tweetwatch.monitor.domain.model
 data class Account(
     val handle: String,
     val displayName: String,
-    val avatarUrl: String
+    val avatarUrl: String?
 )

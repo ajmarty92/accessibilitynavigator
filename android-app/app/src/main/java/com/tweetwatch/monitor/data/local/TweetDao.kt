@@ -15,9 +15,6 @@ interface TweetDao {
     @Query("SELECT * FROM tweets WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): TweetEntity?
 
-    @Query("SELECT MIN(createdAtEpochMillis) FROM tweets")
-    suspend fun oldestCachedAtMillis(): Long?
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(tweet: TweetEntity)
 

@@ -20,6 +20,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
 import com.tweetwatch.monitor.R
@@ -89,7 +90,9 @@ fun TweetWatchNavHost(navController: NavHostController = rememberNavController()
             }
             composable(
                 route = Destination.TweetDetail.route,
-                arguments = listOf(navArgument(Destination.TweetDetail.ARG_TWEET_ID) { }),
+                arguments = listOf(
+                    navArgument(Destination.TweetDetail.ARG_TWEET_ID) { type = NavType.StringType }
+                ),
                 deepLinks = listOf(
                     navDeepLink { uriPattern = "$DEEP_LINK_SCHEME://$DEEP_LINK_HOST/{${Destination.TweetDetail.ARG_TWEET_ID}}" }
                 )
