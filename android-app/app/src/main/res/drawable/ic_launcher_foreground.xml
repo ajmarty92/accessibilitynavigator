@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simple placeholder mark (a stylized "bird" chevron in the accent color).
+     Swap for real launcher art before shipping. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#1DA1F2"
+        android:pathData="M54,30 C64,30 74,38 76,50 C77,56 76,62 73,67 C68,78 56,84 44,82 C51,81 57,77 60,71 C53,71 47,67 45,61 C47,61 49,61 51,60 C44,58 39,53 39,46 C41,47 43,48 45,48 C39,44 36,37 39,31 C46,39 56,44 67,45 C65,36 72,29 81,29 C85,29 89,31 91,34 C94,33 97,32 100,30 C99,33 97,36 94,38 C97,38 99,37 102,36 C100,39 98,41 95,43 C95,44 95,45 95,46 C95,66 80,88 54,88 C46,88 38,86 32,82 C33,82 34,82 35,82 C42,82 48,80 53,76 C46,76 41,71 39,65 C41,65 44,65 46,64 C39,62 34,57 33,50 C35,51 38,52 40,52 C34,48 30,41 31,34 C39,43 50,49 62,50 C60,42 63,34 70,30 C64,30 58,30 54,30 Z" />
+</vector>

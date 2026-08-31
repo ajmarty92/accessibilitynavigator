@@ -1,0 +1,15 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- App is dark-mode only by design (see ui/theme/Theme.kt for the Compose
+         Material3 dark color scheme, which is applied unconditionally). This
+         XML theme only covers the window background shown before Compose
+         takes over, and intentionally extends the *Dark* Material3 parent
+         (not DayNight) so it never flips light even if the OS theme is light. -->
+    <style name="Theme.TweetWatch" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowBackground">@color/background_dark</item>
+        <item name="android:statusBarColor">@color/background_dark</item>
+        <item name="android:navigationBarColor">@color/background_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
+        <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
+    </style>
+</resources>

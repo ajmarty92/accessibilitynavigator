@@ -1,0 +1,44 @@
+<resources>
+    <string name="app_name">TweetWatch</string>
+
+    <string name="feed_title">Feed</string>
+    <string name="settings_title">Settings</string>
+    <string name="tweet_detail_title">Tweet</string>
+
+    <string name="nav_feed">Feed</string>
+    <string name="nav_settings">Settings</string>
+
+    <string name="settings_backend_section">Backend connection</string>
+    <string name="settings_base_url_label">Backend base URL</string>
+    <string name="settings_base_url_placeholder">https://example.com</string>
+    <string name="settings_api_key_label">API key</string>
+    <string name="settings_save">Save</string>
+    <string name="settings_saved">Settings saved</string>
+    <string name="settings_not_configured">Set your backend URL and API key to start syncing.</string>
+
+    <string name="settings_accounts_section">Tracked accounts</string>
+    <string name="settings_add_account_label">Add account by handle</string>
+    <string name="settings_add_account_placeholder">handle (without @)</string>
+    <string name="settings_add">Add</string>
+    <string name="settings_remove_account_cd">Remove account</string>
+    <string name="settings_no_accounts">No accounts tracked yet.</string>
+    <string name="settings_account_not_found">That handle could not be found.</string>
+    <string name="settings_account_add_failed">Couldn\'t add that account. Try again.</string>
+
+    <string name="feed_empty">No tweets yet. Pull to refresh, or add tracked accounts in Settings.</string>
+    <string name="feed_not_configured">Connect your backend in Settings to see tweets.</string>
+    <string name="feed_load_more_error">Couldn\'t load more tweets.</string>
+    <string name="feed_retweeted">Retweeted</string>
+    <string name="feed_reply">Reply</string>
+
+    <string name="detail_open_in_browser">Open on X</string>
+    <string name="detail_not_found">This tweet isn\'t available.</string>
+
+    <string name="notification_channel_name">New tweets</string>
+    <string name="notification_channel_description">Notifications for new posts from tracked accounts</string>
+    <string name="notification_action_open_on_x">Open on X</string>
+
+    <string name="cd_avatar">Profile picture</string>
+    <string name="cd_tweet_image">Tweet image</string>
+    <string name="cd_back">Back</string>
+</resources>

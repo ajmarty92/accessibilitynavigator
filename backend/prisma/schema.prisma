@@ -17,6 +17,14 @@ model TrackedAccount {
   avatarUrl      String?
   lastSeenTweetId String?
   createdAt      DateTime @default(now())
+
+  // Soft-delete flag: DELETE /accounts/{handle} sets this to false instead
+  // of removing the row, so previously-fetched Tweet rows for this handle
+  // can still resolve accountDisplayName/accountAvatarUrl (contract says
+  // "existing cached tweets remain" after untracking). The poller and
+  // GET /accounts both filter on isTracked: true; this field is
+  // backend-internal and not part of the public API contract.
+  isTracked      Boolean  @default(true)
 }
 
 model Tweet {
