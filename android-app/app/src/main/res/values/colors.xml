@@ -1,0 +1,5 @@
+<resources>
+    <!-- Used only by the XML window-background theme (themes.xml); the actual
+         Compose Material3 dark scheme lives in ui/theme/Color.kt. -->
+    <color name="background_dark">#FF121212</color>
+</resources>

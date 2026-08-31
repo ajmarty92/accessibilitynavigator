@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- allowBackup is false and this app stores its API key in EncryptedSharedPreferences,
+     so there is nothing sensitive to explicitly exclude; this file exists to satisfy
+     android:dataExtractionRules and documents the intent. -->
+<data-extraction-rules>
+    <cloud-backup disableIfNoEncryptionCapability="true" />
+</data-extraction-rules>

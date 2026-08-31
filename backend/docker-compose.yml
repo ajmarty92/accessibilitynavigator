@@ -1,0 +1,21 @@
+services:
+  twitter-monitor-backend:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      # Paths inside the container — point these at files under /app/data so
+      # they land on the persistent volume below. Everything else (API_KEY,
+      # TWITTER_USERNAME, etc.) comes from .env.
+      - DATABASE_URL=file:/app/data/twitter-monitor.db
+      - COOKIE_CACHE_PATH=/app/data/twitter-cookies.json
+      - FIREBASE_SERVICE_ACCOUNT_PATH=/app/data/firebase-service-account.json
+    volumes:
+      # Bind mount (not a named volume) so it's trivial to drop the Firebase
+      # service account JSON straight into ./data on the host — see
+      # README.md. Also persists the SQLite DB and cached X session cookies
+      # across container restarts/rebuilds.
+      - ./data:/app/data
