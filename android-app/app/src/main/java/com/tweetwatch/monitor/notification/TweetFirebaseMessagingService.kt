@@ -22,6 +22,15 @@ private const val TYPE_NEW_TWEET = "new_tweet"
  * notification — in every app state, since a data message with
  * android.priority=high wakes this service even when the app is
  * backgrounded or killed.
+ *
+ * Unlike BroadcastReceiver.onReceive(), FirebaseMessagingService's callbacks
+ * don't get torn down the instant they return — there's no goAsync()
+ * equivalent here (it doesn't exist on Service, only on BroadcastReceiver)
+ * because none is needed: the FCM SDK keeps this service instance alive for
+ * its own dispatch. Work is still kept on serviceScope (IO dispatcher) so it
+ * never runs on the main thread; both operations below (a local DB upsert
+ * and building/posting a notification) are fast, so no WorkManager hand-off
+ * is warranted.
  */
 @AndroidEntryPoint
 class TweetFirebaseMessagingService : FirebaseMessagingService() {
@@ -33,10 +42,8 @@ class TweetFirebaseMessagingService : FirebaseMessagingService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onNewToken(token: String) {
-        val pendingResult = goAsync()
         serviceScope.launch {
             runCatching { syncFcmTokenUseCase.onNewToken(token) }
-            pendingResult.finish()
         }
     }
 
@@ -46,13 +53,11 @@ class TweetFirebaseMessagingService : FirebaseMessagingService() {
 
         val payload = data.toPushTweetPayloadOrNull() ?: return
 
-        val pendingResult = goAsync()
         serviceScope.launch {
             runCatching {
                 upsertPushedTweetUseCase(payload.toDomainTweet())
                 notificationHelper.showNewTweetNotification(payload)
             }
-            pendingResult.finish()
         }
     }
 
