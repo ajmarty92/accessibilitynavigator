@@ -1,0 +1,42 @@
+// Prisma schema for the Twitter Monitor backend.
+// SQLite is used deliberately to keep this self-contained for a 2-user,
+// self-hosted deployment (Raspberry Pi / small VPS) — no external DB needed.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model TrackedAccount {
+  handle         String   @id // stored without leading "@"
+  displayName    String
+  avatarUrl      String?
+  lastSeenTweetId String?
+  createdAt      DateTime @default(now())
+}
+
+model Tweet {
+  id            String   @id // tweet ID as a string (avoids 32/53-bit overflow)
+  accountHandle String
+  text          String
+  createdAt     DateTime
+  tweetUrl      String
+  mediaUrls     String   @default("[]") // JSON-encoded string[]
+  links         String   @default("[]") // JSON-encoded {url, expandedUrl, displayUrl}[]
+  isRetweet     Boolean  @default(false)
+  isReply       Boolean  @default(false)
+  fetchedAt     DateTime @default(now())
+
+  @@index([accountHandle])
+  @@index([createdAt])
+}
+
+model Device {
+  fcmToken     String   @id
+  platform     String
+  registeredAt DateTime @default(now())
+}
