@@ -1,0 +1,20 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.ap_
+*.aab
+
+# Firebase: never commit the real config for this project. Each developer
+# drops their own google-services.json into app/ (see README.md).
+app/google-services.json
+
+# Signing
+*.jks
+*.keystore

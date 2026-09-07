@@ -1,0 +1,42 @@
+name: Android build
+
+on:
+  push:
+    branches: [main]
+    paths: ["android-app/**", ".github/workflows/android-build.yml"]
+  pull_request:
+    paths: ["android-app/**", ".github/workflows/android-build.yml"]
+
+jobs:
+  assemble-debug:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission to gradlew
+        run: chmod +x gradlew
+
+      - name: Assemble debug APK
+        # No google-services.json in the repo (never committed, see app/.gitignore) —
+        # app/build.gradle.kts only applies the google-services plugin when that file
+        # is present, so compilation doesn't depend on real Firebase config.
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: android-app/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

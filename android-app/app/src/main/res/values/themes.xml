@@ -1,0 +1,19 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- App is dark-mode only by design (see ui/theme/Theme.kt for the Compose
+         Material3 dark color scheme, which is applied unconditionally). This
+         XML theme only covers the window background shown before Compose
+         takes over. It extends the platform's own Theme.Material.NoActionBar
+         (built into the OS, API 21+) rather than a Theme.Material3.* style,
+         since those come from the com.google.android.material:material AAR,
+         which this Compose-only app doesn't depend on — using it here would
+         fail resource linking (AAPT: resource not found). Real Material3
+         theming happens entirely in Compose. -->
+    <style name="Theme.TweetWatch" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/background_dark</item>
+        <item name="android:statusBarColor">@color/background_dark</item>
+        <item name="android:navigationBarColor">@color/background_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
+        <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
+    </style>
+</resources>
