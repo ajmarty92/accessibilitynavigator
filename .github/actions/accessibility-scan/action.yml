@@ -21,6 +21,14 @@ inputs:
     description: 'Number of pages to scan starting from url'
     required: false
     default: '1'
+  repository:
+    description: 'owner/repo, for posting a PR comment via the Accessibility Navigator GitHub App (requires it to be installed — see Settings → GitHub Integration). Defaults to the current repository.'
+    required: false
+    default: ${{ github.repository }}
+  pr-number:
+    description: 'Pull request number to comment on. Defaults to the current pull request, when this runs on a pull_request event.'
+    required: false
+    default: ${{ github.event.pull_request.number }}
 
 outputs:
   passed:
@@ -45,7 +53,11 @@ runs:
           --arg url "${{ inputs.url }}" \
           --arg failOn "${{ inputs.fail-on }}" \
           --argjson maxPages "${{ inputs.max-pages }}" \
-          '{url: $url, failOn: $failOn, options: {maxPages: $maxPages}}')
+          --arg repository "${{ inputs.repository }}" \
+          --arg prNumber "${{ inputs.pr-number }}" \
+          '{url: $url, failOn: $failOn, options: {maxPages: $maxPages}} +
+           (if $repository != "" then {repository: $repository} else {} end) +
+           (if $prNumber != "" then {prNumber: ($prNumber | tonumber)} else {} end)')
 
         HTTP_STATUS=$(curl -sS -o /tmp/accessibility-scan-response.json -w '%{http_code}' \
           -X POST "${{ inputs.api-base-url }}/api/ci/scan" \

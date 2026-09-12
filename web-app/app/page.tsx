@@ -141,6 +141,12 @@ export default function HomePage() {
                     Webhooks
                   </Link>
                   <Link
+                    href="/settings/github"
+                    className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200"
+                  >
+                    GitHub
+                  </Link>
+                  <Link
                     href="/settings/monitors"
                     className="text-secondary-700 hover:text-primary-600 font-medium transition-colors duration-200"
                   >
@@ -224,6 +230,9 @@ export default function HomePage() {
                     </Link>
                     <Link href="/settings/webhooks" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
                       Webhooks
+                    </Link>
+                    <Link href="/settings/github" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
+                      GitHub
                     </Link>
                     <Link href="/settings/monitors" className="text-secondary-700 hover:text-primary-600 font-medium text-left">
                       Monitors

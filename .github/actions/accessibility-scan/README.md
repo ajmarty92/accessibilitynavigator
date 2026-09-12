@@ -12,6 +12,13 @@ doesn't fail every PR forever; it only catches regressions.
    Professional plan or higher) and generate a key.
 2. Add it as a repository secret named `ACCESSIBILITY_NAVIGATOR_API_KEY`
    (Settings → Secrets and variables → Actions).
+3. Optional — for automatic PR comments: go to **Settings → GitHub
+   Integration** and connect the Accessibility Navigator GitHub App to
+   this repository (or your whole org). No further workflow changes are
+   needed — when this action runs on a `pull_request` event it
+   automatically detects the repository and PR number and, if the App is
+   installed, posts (and keeps updating in place on every push) a comment
+   summarizing the scan.
 
 ## Usage
 
@@ -44,6 +51,8 @@ jobs:
 | `api-base-url` | no       | `https://accessibility-navigator.com` | Base URL of your Accessibility Navigator deployment              |
 | `fail-on`      | no       | `critical`                            | Minimum severity that fails the job: `critical`, `serious`, `moderate`, `any` |
 | `max-pages`    | no       | `1`                                    | Number of pages to scan starting from `url`                     |
+| `repository`   | no       | `${{ github.repository }}`            | `owner/repo`, used to post a PR comment via the GitHub App (see Setup above) |
+| `pr-number`    | no       | `${{ github.event.pull_request.number }}` | Pull request number to comment on                            |
 
 ## Outputs
 

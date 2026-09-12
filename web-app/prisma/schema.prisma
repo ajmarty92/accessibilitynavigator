@@ -40,6 +40,7 @@ model Organization {
   accessibilityStatements AccessibilityStatement[]
   scheduledMonitors ScheduledMonitor[]
   documentScans    DocumentScan[]
+  githubInstallations GitHubInstallation[]
   subscription Subscription?
 }
 
@@ -164,6 +165,28 @@ model DocumentViolation {
 
   @@index([documentScanId])
   @@index([impact])
+}
+
+// One organization's installation of the Accessibility Navigator GitHub
+// App. Created by the OAuth-style install callback (state round-trips the
+// organizationId through GitHub — see lib/github-install-state.ts), kept in
+// sync by the installation webhook (app/api/github/webhook/route.ts) when
+// it's suspended/uninstalled. Used to mint installation access tokens for
+// posting the CI scan's PR-automation comment — see lib/github-app.ts and
+// lib/github-pr-automation.ts.
+model GitHubInstallation {
+  id                  String       @id @default(cuid())
+  organizationId      String
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  installationId      Int          @unique // GitHub's installation id
+  accountLogin        String       // the GitHub user/org that installed the app
+  accountType         String       // User or Organization
+  repositorySelection String       // all or selected
+  suspendedAt         DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  @@index([organizationId])
 }
 
 // Sliding-window rate limiting for auth and scan endpoints.
