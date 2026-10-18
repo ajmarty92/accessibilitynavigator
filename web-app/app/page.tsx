@@ -602,6 +602,42 @@ export default function HomePage() {
         </section>
       )}
 
+      {/* Workflow integrations — signed-in users only */}
+      {status === 'authenticated' && !isScanning && (
+        <section className="py-20 bg-secondary-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="text-3xl font-bold text-secondary-900 mb-2">Fit it into how your team works</h2>
+            <p className="text-secondary-600 mb-8 max-w-2xl">
+              Scanning a URL or uploading a PDF needs nothing else. These optional connections catch problems
+              automatically so nobody has to remember to run a scan.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Link href="/settings/monitors" className="card card-hover block">
+                <h3 className="font-semibold text-secondary-900 mb-1">Scheduled monitors</h3>
+                <p className="text-sm text-secondary-600">
+                  Rescan a live site daily or weekly and get emailed only when something new breaks. For
+                  everyone — no developer setup.
+                </p>
+              </Link>
+              <Link href="/documents" className="card card-hover block">
+                <h3 className="font-semibold text-secondary-900 mb-1">PDF &amp; document checks</h3>
+                <p className="text-sm text-secondary-600">
+                  Upload manuals, reports, and forms to check tagging, alt text, headings, and more. Works from
+                  a file — no website or repository needed.
+                </p>
+              </Link>
+              <Link href="/settings/github" className="card card-hover block">
+                <h3 className="font-semibold text-secondary-900 mb-1">GitHub pull requests</h3>
+                <p className="text-sm text-secondary-600">
+                  For teams that build their site on GitHub: get accessibility results as a comment on each pull
+                  request, before changes go live. Optional.
+                </p>
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* CTA Section */}
       <section className="py-20 bg-gradient-to-br from-primary-600 to-accent-600">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">

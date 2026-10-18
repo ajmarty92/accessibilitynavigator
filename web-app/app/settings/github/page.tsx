@@ -99,8 +99,9 @@ function GitHubSettingsView() {
           </button>
           <h1 className="text-2xl font-bold text-secondary-900">GitHub Integration</h1>
           <p className="text-secondary-600 text-sm mt-1">
-            Connect the GitHub App so the CI scan automatically posts (and updates) a comment on the pull
-            request with any new violations — no extra setup in your workflow beyond installing it.
+            Optional, and only for teams whose website code lives on GitHub. You don&apos;t need this to scan
+            sites or PDFs. Connect the GitHub App and the CI scan automatically posts (and updates) a comment
+            on each pull request with any new violations, so problems are caught before they go live.
           </p>
         </div>
       </header>
