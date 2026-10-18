@@ -3,6 +3,7 @@ import { resolveOrganizationFromApiKey } from '@/lib/api-keys'
 import { runScan, mapScanErrorToResponse } from '@/lib/run-scan'
 import { isFeatureAvailable } from '@/lib/usage-tracking'
 import { computeNewViolations, VALID_FAIL_ON_VALUES } from '@/lib/ci-scan-diff'
+import { postAccessibilityPrComment } from '@/lib/github-pr-automation'
 import { prisma } from '@/lib/prisma'
 import { logger } from '@/lib/logger'
 
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { url, options = {}, useAI = false, failOn = 'critical' } = await request.json()
+    const { url, options = {}, useAI = false, failOn = 'critical', repository, prNumber } = await request.json()
 
     if (!VALID_FAIL_ON_VALUES.includes(failOn)) {
       return NextResponse.json(
@@ -68,12 +69,37 @@ export async function POST(request: NextRequest) {
     const newViolations = computeNewViolations(result.savedScan.violations, baseline?.violations ?? [], failOn)
     const passed = newViolations.length === 0
     const reportBaseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const reportUrl = `${reportBaseUrl}/results/${result.savedScan.id}`
+
+    // PR automation: when the caller (the GitHub Action, in a
+    // pull_request-triggered workflow) identifies the repo/PR, post or
+    // update a sticky comment there with these same results. Entirely
+    // optional and never affects the pass/fail response below — see
+    // lib/github-pr-automation.ts for why this never throws.
+    if (typeof repository === 'string' && repository && Number.isInteger(prNumber) && prNumber > 0) {
+      await postAccessibilityPrComment({
+        organizationId,
+        repository,
+        prNumber,
+        passed,
+        complianceScore: result.complianceScore,
+        previousComplianceScore: baseline?.complianceScore ?? null,
+        failOn,
+        reportUrl,
+        newViolations: newViolations.map(v => ({
+          impact: v.impact,
+          wcagReference: v.wcagReference,
+          help: v.help,
+          helpUrl: v.helpUrl,
+        })),
+      })
+    }
 
     return NextResponse.json({
       passed,
       url: result.formattedUrl,
       scanId: result.savedScan.id,
-      reportUrl: `${reportBaseUrl}/results/${result.savedScan.id}`,
+      reportUrl,
       complianceScore: result.complianceScore,
       previousComplianceScore: baseline?.complianceScore ?? null,
       failOn,

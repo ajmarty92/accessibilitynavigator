@@ -1,0 +1,27 @@
+# Reference trigger for POST /api/cron/run-monitors. Rename to
+# run-monitors.yml and add a CRON_SECRET repository secret (matching the
+# CRON_SECRET environment variable on your deployment) to activate it.
+# Left as .example so it doesn't run unattended in this repo, where no
+# CRON_SECRET/deployment exists yet.
+#
+# The endpoint processes at most 5 due monitors per call (see
+# MAX_MONITORS_PER_RUN in app/api/cron/run-monitors/route.ts), so trigger
+# this often enough that monitors don't fall behind — hourly is a
+# reasonable default even for daily/weekly monitors, since it just means
+# "check for due work," not "run every monitor every hour."
+
+name: Run scheduled accessibility monitors
+
+on:
+  schedule:
+    - cron: '0 * * * *' # hourly
+  workflow_dispatch: {} # allow manual triggering from the Actions tab
+
+jobs:
+  run-monitors:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger monitor run
+        run: |
+          curl -sS -f -X POST "${{ vars.APP_BASE_URL }}/api/cron/run-monitors" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"

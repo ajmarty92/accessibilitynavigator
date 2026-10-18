@@ -2,7 +2,7 @@ import { prisma } from './prisma'
 import { signWebhookPayload } from './webhook-signing'
 import { logger } from './logger'
 
-export type WebhookEvent = 'scan.completed'
+export type WebhookEvent = 'scan.completed' | 'document_scan.completed'
 
 interface WebhookPayload {
   event: WebhookEvent
